@@ -153,6 +153,12 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
             const d = await r.json();
             if(d.success) {
                 state.cart = d.items;
+                // FIX: Restore the global order state from the database!
+                state.discount_amount = parseFloat(d.order_info.discount_total) || 0;
+                state.discount_note = d.order_info.discount_note || '';
+                state.discount_id = d.order_info.discount_id || null;
+                state.amount_paid = parseFloat(d.order_info.amount_paid) || 0;
+                
                 document.getElementById('txtGrandTotal').innerText = '₱' + parseFloat(d.order_info.grand_total).toFixed(2);
             }
             renderCart();
@@ -167,9 +173,21 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
                 const d = await r.json();
                 if(d.success) {
                     state.cart = d.items;
+                    // FIX: Restore the global order state from the database!
+                    state.discount_amount = parseFloat(d.order_info.discount_total) || 0;
+                    state.discount_note = d.order_info.discount_note || '';
+                    state.discount_id = d.order_info.discount_id || null;
+                    state.amount_paid = parseFloat(d.order_info.amount_paid) || 0;
+                    
                     document.getElementById('txtGrandTotal').innerText = '₱' + parseFloat(d.order_info.grand_total).toFixed(2);
                 }
-            } else { state.cart = []; }
+            } else { 
+                state.cart = []; 
+                state.discount_amount = 0;
+                state.discount_note = '';
+                state.discount_id = null;
+                state.amount_paid = 0;
+            }
             renderCart();
         }
     </script>
