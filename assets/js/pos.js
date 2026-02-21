@@ -320,8 +320,14 @@ window.customOrderDiscount = async function() {
     
     if (formValues) {
         state.discount_id = null; state.senior_details = []; state.custom_discount = formValues;
-        Swal.fire({title:'Applied', text: 'Will calculate accurately upon save.', icon:'success', timer: 1000});
-        renderCart();
+        
+        // ✨ MAGIC FIX: If there is an active table, auto-save instantly to update the screen math!
+        if(state.activeOrderId && state.activeOrderId !== 'new') { 
+            await saveOrder(true); 
+        } else { 
+            renderCart(); 
+            Swal.fire({title:'Applied', text: 'Will calculate accurately upon save.', icon:'success', timer: 1200, showConfirmButton: false});
+        }
     }
 };
 
@@ -336,8 +342,11 @@ window.setSeniorType = function(btn, type) {
 window.selectDiscount = async function(discId) {
     if(discId === 0) {
         state.discount_id = null; state.discount_note = ''; state.senior_details = []; state.discount_amount = 0; state.custom_discount = { is_active: false };
-        Swal.close(); renderCart();
-        return Swal.fire({title: 'Removed', text: 'Discount cleared', icon: 'success', timer: 1000});
+        Swal.close(); 
+        
+        // Auto-refresh clear
+        if(state.activeOrderId && state.activeOrderId !== 'new') { await saveOrder(true); } else { renderCart(); }
+        return Swal.fire({title: 'Removed', text: 'Discount cleared', icon: 'success', timer: 1000, showConfirmButton: false});
     }
 
     const d = state.discounts.find(x => x.id == discId);
@@ -398,11 +407,19 @@ window.selectDiscount = async function(discId) {
         });
         if (details) {
             state.senior_details = details; state.discount_note = `SC/PWD (${details.length} Pax)`;
-            renderCart();
+            if(state.activeOrderId && state.activeOrderId !== 'new') { await saveOrder(true); } else { renderCart(); }
         } else { state.discount_id = null; }
     } else {
         state.discount_note = d.name;
-        renderCart();
+        // ✨ MAGIC FIX: Force the popup to close and auto-save instantly!
+        Swal.close(); 
+        
+        if(state.activeOrderId && state.activeOrderId !== 'new') { 
+            await saveOrder(true); 
+        } else { 
+            renderCart(); 
+            Swal.fire({title: 'Applied', text: 'Discount added. Math will calculate when you Save/Charge.', icon: 'success', timer: 1500, showConfirmButton: false});
+        }
     }
 };
 
