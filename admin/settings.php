@@ -306,12 +306,25 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 title: isEdit ? 'Edit Discount' : 'New Discount',
                 html: `
                     <input id="sw-name" class="swal2-input" placeholder="Rule Name (e.g. Senior, VIP)" value="${isEdit ? obj.name : ''}">
-                    <select id="sw-type" class="swal2-input"><option value="percent" ${isEdit&&obj.type==='percent'?'selected':''}>Percent (%)</option><option value="amount" ${isEdit&&obj.type==='amount'?'selected':''}>Flat Amount (₱)</option></select>
+                    <select id="sw-type" class="swal2-input">
+                        <option value="percent" ${isEdit && obj.type === 'percent' ? 'selected' : ''}>Percent (%)</option>
+                        <option value="fixed" ${isEdit && obj.type === 'fixed' ? 'selected' : ''}>Flat Amount (₱)</option>
+                    </select>
                     <input type="number" id="sw-val" class="swal2-input" placeholder="Value (e.g. 20)" step="0.01" value="${isEdit ? obj.value : ''}">
-                    <select id="sw-tgt" class="swal2-input"><option value="whole" ${isEdit&&obj.target_type==='whole'?'selected':''}>Apply to Whole Bill</option><option value="highest" ${isEdit&&obj.target_type==='highest'?'selected':''}>Apply to Highest Item (SC/PWD Rule)</option></select>
+                    <select id="sw-tgt" class="swal2-input">
+                        <option value="all" ${isEdit && obj.target_type === 'all' ? 'selected' : ''}>Apply to Whole Bill</option>
+                        <option value="highest" ${isEdit && obj.target_type === 'highest' ? 'selected' : ''}>Apply to Highest Item (SC/PWD Rule)</option>
+                    </select>
                 `,
                 focusConfirm: false, showCancelButton: true, confirmButtonColor: '#6B4226',
-                preConfirm: () => { return { name: document.getElementById('sw-name').value, type: document.getElementById('sw-type').value, value: document.getElementById('sw-val').value, target_type: document.getElementById('sw-tgt').value }; }
+                preConfirm: () => { 
+                    return { 
+                        name: document.getElementById('sw-name').value, 
+                        type: document.getElementById('sw-type').value, 
+                        value: document.getElementById('sw-val').value, 
+                        target_type: document.getElementById('sw-tgt').value 
+                    }; 
+                }
             });
             if (form) save('discount', { id: isEdit ? obj.id : null, ...form });
         }
