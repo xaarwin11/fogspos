@@ -40,7 +40,9 @@ try {
     }
     
     if ($found) {
-        echo json_encode(['success' => true]);
+        // FIX: Pass the CSRF token back so the POS can rescue a dead session!
+        if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
+        echo json_encode(['success' => true, 'csrf_token' => $_SESSION['csrf_token']]);
     } else {
         // DIAGNOSTIC OUTPUT: Sends back exactly what the server saw!
         echo json_encode(['success' => false, 'error' => "Server checked PIN: '$pin'. It did not match the database hashes."]);

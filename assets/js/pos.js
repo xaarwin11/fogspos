@@ -461,7 +461,7 @@ window.saveOrder = async function(silent = false) {
         method: 'POST', 
         headers: { 
             'Content-Type': 'application/json',
-            'X-CSRF-Token': getCsrfToken() // CSRF APPLIED
+            'X-CSRF-Token': getCsrfToken() 
         },
         body: JSON.stringify({
             items: state.cart, table_id: state.activeTableId, order_id: state.activeOrderId === 'new' ? null : state.activeOrderId,
@@ -469,7 +469,9 @@ window.saveOrder = async function(silent = false) {
             custom_discount: state.custom_discount, customer_name: state.customer_name
         })
     });
+    
     const result = await response.json();
+    
     if (result.success) {
         state.activeOrderId = result.order_id;
         if(state.activeOrderId) {
@@ -478,7 +480,37 @@ window.saveOrder = async function(silent = false) {
             if(d.success) { syncOrderState(d); renderCart(); }
         }
         if(!silent) Swal.fire({ icon: 'success', title: 'Order Saved', timer: 1000, showConfirmButton: false });
-    } else Swal.fire('Error', result.error, 'error');
+        
+    } else if (result.error === 'Unauthorized') {
+        // 🚨 MAGIC FIX: RESCUE CART LOGIC (Session died while tablet was asleep)
+        const { value: pin } = await Swal.fire({
+            title: 'Session Expired',
+            text: 'Please enter your PIN to resume saving this order:',
+            input: 'password',
+            inputAttributes: { inputmode: 'numeric', pattern: '[0-9]*' },
+            showCancelButton: true,
+            confirmButtonColor: '#6B4226'
+        });
+        
+        if (pin) {
+            Swal.fire({title:'Resuming...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            const loginRes = await fetch('../api/auth_login.php', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passcode: pin })
+            });
+            const loginData = await loginRes.json();
+            
+            if (loginData.success) {
+                // Inject the new security token into the page and re-run the save!
+                document.querySelector('meta[name="csrf-token"]').setAttribute('content', loginData.csrf_token);
+                return saveOrder(silent); 
+            } else {
+                Swal.fire('Error', 'Invalid PIN. Order not saved.', 'error');
+            }
+        }
+    } else {
+        Swal.fire('Error', result.error, 'error');
+    }
 };
 
 window.loadTakeout = async function(id) { 
