@@ -1,0 +1,47 @@
+<?php
+require_once '../db.php';
+session_start();
+header('Content-Type: application/json');
+
+if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
+
+// Security: CSRF Protection
+$headers = getallheaders();
+$csrf_token = $headers['X-CSRF-Token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+if (empty($csrf_token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_token)) {
+    echo json_encode(['success' => false, 'error' => 'Security token invalid.']); exit;
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+$order_id = !empty($input['order_id']) ? (int)$input['order_id'] : null;
+$new_table_id = !empty($input['new_table_id']) ? (int)$input['new_table_id'] : null;
+
+if (!$order_id || !$new_table_id) {
+    echo json_encode(['success' => false, 'error' => 'Missing data.']); exit;
+}
+
+try {
+    $mysqli = get_db_conn();
+    
+    // 1. Check if the destination table is currently occupied
+    $chk = $mysqli->prepare("SELECT id FROM orders WHERE table_id = ? AND status = 'open'");
+    $chk->bind_param('i', $new_table_id);
+    $chk->execute();
+    if ($chk->get_result()->fetch_assoc()) {
+        echo json_encode(['success' => false, 'error' => 'Destination table is already occupied!']); exit;
+    }
+    $chk->close();
+
+    // 2. Transfer the order to the new table
+    $upd = $mysqli->prepare("UPDATE orders SET table_id = ? WHERE id = ?");
+    $upd->bind_param('ii', $new_table_id, $order_id);
+    $upd->execute();
+    $upd->close();
+
+    // 3. Get the new table number to update the screen
+    $t = $mysqli->query("SELECT table_number FROM tables WHERE id = $new_table_id")->fetch_assoc();
+
+    echo json_encode(['success' => true, 'new_table_name' => 'Table ' . $t['table_number']]);
+} catch (Exception $e) {
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+}

@@ -179,7 +179,7 @@ try {
                 ];
             }
 
-            $title = ($type === 'receipt') ? "OFFICIAL RECEIPT" : "BILL STATEMENT";
+            $title = ($type === 'receipt') ? "RECEIPT" : "BILL STATEMENT";
             
             $p->printTicket($title, $bill_items, $meta, true, [
                 'beep' => (int)($conf['beep_on_print'] ?? 1),

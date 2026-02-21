@@ -133,6 +133,10 @@ function renderCart() {
                 </div>
             `;
         });
+        const btnTransfer = document.getElementById('btnTransfer');
+        if (btnTransfer) {
+            btnTransfer.style.display = (state.mode === 'dine_in' && state.activeOrderId && state.activeOrderId !== 'new') ? 'block' : 'none';
+        }
     }
 
     const totalCombinedDiscount = localItemDiscountSum + (parseFloat(state.discount_amount) || 0);
@@ -703,4 +707,47 @@ window.printOrder = async function(type, event) {
         } else { Swal.fire('Print Failed', d.message || d.error, 'error'); }
     } catch(e) { Swal.fire('Error', 'Could not reach printer service.', 'error'); }
     if (btn) { btn.innerHTML = oldText; btn.disabled = false; }
+};
+window.transferTablePopup = async function() {
+    if (!state.activeOrderId || state.activeOrderId === 'new') return;
+    
+    Swal.fire({title:'Loading tables...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    const r = await fetch('../api/get_tables.php');
+    const tables = await r.json();
+    
+    let html = '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">';
+    let hasAvailable = false;
+    tables.forEach(t => {
+        // Only show tables that are empty!
+        if (t.status === 'available') {
+            hasAvailable = true;
+            html += `<div style="padding:15px 5px; border-radius:8px; cursor:pointer; font-weight:bold; background:#f0fdf4; border:1px solid #bbf7d0; color:var(--brand-dark);" onclick="executeTransfer(${t.id}, '${t.table_number}')">${t.table_number}</div>`;
+        }
+    });
+    html += '</div>';
+
+    if (!hasAvailable) return Swal.fire('No Tables', 'All other tables are currently occupied!', 'info');
+
+    Swal.fire({ title: 'Move to which table?', html: html, showConfirmButton: false, showCancelButton: true });
+};
+
+window.executeTransfer = async function(newTableId, newTableNum) {
+    Swal.fire({title:'Moving...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    try {
+        const res = await fetch('../api/transfer_table.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({ order_id: state.activeOrderId, new_table_id: newTableId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            state.activeTableId = newTableId;
+            document.getElementById('tableName').innerText = data.new_table_name;
+            Swal.fire({icon: 'success', title: 'Moved successfully!', timer: 1000, showConfirmButton: false});
+        } else {
+            Swal.fire('Error', data.error, 'error');
+        }
+    } catch (e) {
+        Swal.fire('Error', 'Failed to transfer table.', 'error');
+    }
 };

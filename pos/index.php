@@ -60,10 +60,12 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
                     <button class="type-btn" id="btnTakeout" onclick="setOrderMode('takeout')">🥡 Takeout</button>
                 </div>
                 
-                <div id="tableSelector" style="padding:12px; border:1px solid var(--border); border-radius:10px; background:white; cursor:pointer; display:flex; justify-content:space-between;" onclick="showTablePopup()">
+                <div id="tableSelector" style="padding:12px; border:1px solid var(--border); border-radius:10px; background:white; cursor:pointer; display:flex; justify-content:space-between; margin-bottom:5px;" onclick="showTablePopup()">
                     <span id="tableName" style="font-weight:700;">Select Table</span>
                     <span style="color:var(--brand);">Change ❯</span>
                 </div>
+                
+                <button id="btnTransfer" class="btn secondary" style="width:100%; display:none; padding:8px; font-size:0.9rem;" onclick="transferTablePopup()">🔄 Move Order to Another Table</button>
             </div>
 
             <div class="cart-items" id="cartContainer" style="padding: 0 15px; flex:1; overflow-y:auto;">
