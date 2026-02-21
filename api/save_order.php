@@ -3,7 +3,19 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
 if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
+
+// Security Fix #3: CSRF Check
+$headers = getallheaders();
+$csrf_token = $headers['X-CSRF-Token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+if (empty($csrf_token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_token)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Security token invalid. Please refresh the page.']);
+    exit;
+}
 
 $input = json_decode(file_get_contents('php://input'), true);
 $items = $input['items'] ?? [];
@@ -13,6 +25,8 @@ $order_id = !empty($input['order_id']) ? (int)$input['order_id'] : null;
 $discount_id = !empty($input['discount_id']) ? (int)$input['discount_id'] : null;
 $discount_note = $input['discount_note'] ?? null;
 $senior_details = $input['senior_details'] ?? []; 
+$custom_discount = $input['custom_discount'] ?? null;
+$customer_name = !empty($input['customer_name']) ? $input['customer_name'] : null;
 
 try {
     $mysqli = get_db_conn();
@@ -25,12 +39,24 @@ try {
         if ($row = $stmt->get_result()->fetch_assoc()) $order_id = $row['id'];
         $stmt->close();
     }
+
     if (!$order_id) {
-        $stmt = $mysqli->prepare("INSERT INTO orders (table_id, order_type, status, created_at) VALUES (?, ?, 'open', NOW())");
-        $stmt->bind_param('is', $table_id, $order_type);
+        $stmt = $mysqli->prepare("INSERT INTO orders (table_id, order_type, status, customer_name, created_at) VALUES (?, ?, 'open', ?, NOW())");
+        $stmt->bind_param('iss', $table_id, $order_type, $customer_name);
         $stmt->execute();
         $order_id = $mysqli->insert_id;
         $stmt->close();
+        
+        $ref_number = date('ym') . str_pad($order_id, 4, '0', STR_PAD_LEFT);
+        $r_stmt = $mysqli->prepare("UPDATE orders SET reference = ? WHERE id = ?");
+        $r_stmt->bind_param('si', $ref_number, $order_id);
+        $r_stmt->execute();
+        $r_stmt->close();
+    } else {
+        $c_stmt = $mysqli->prepare("UPDATE orders SET customer_name = ? WHERE id = ?");
+        $c_stmt->bind_param('si', $customer_name, $order_id);
+        $c_stmt->execute();
+        $c_stmt->close();
     }
 
     $existing_map = [];
@@ -38,77 +64,109 @@ try {
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
     $e_res = $e_stmt->get_result();
+
+    $m_stmt = $mysqli->prepare("SELECT modifier_id FROM order_item_modifiers WHERE order_item_id = ? ORDER BY modifier_id ASC");
+    
     while ($row = $e_res->fetch_assoc()) {
         $oi_id = $row['id'];
-        $m_res = $mysqli->query("SELECT modifier_id FROM order_item_modifiers WHERE order_item_id = $oi_id ORDER BY modifier_id ASC");
+        $m_stmt->bind_param('i', $oi_id);
+        $m_stmt->execute();
+        $m_res = $m_stmt->get_result();
         $m_ids = []; while($m = $m_res->fetch_assoc()) $m_ids[] = $m['modifier_id'];
+        
         $key = $row['product_id'] . '_' . ($row['variation_id'] ?? '0') . '_' . implode(',', $m_ids);
         $existing_map[$key] = $row;
     }
     $e_stmt->close();
+    $m_stmt->close();
 
     $ins_item = $mysqli->prepare("INSERT INTO order_items (order_id, product_id, variation_id, product_name, variation_name, base_price, modifier_total, discount_amount, discount_note, quantity, line_total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
     $upd_item = $mysqli->prepare("UPDATE order_items SET quantity = ?, line_total = ?, discount_amount = ?, discount_note = ? WHERE id = ?");
     $del_item = $mysqli->prepare("DELETE FROM order_items WHERE id = ?");
     $ins_mod  = $mysqli->prepare("INSERT INTO order_item_modifiers (order_item_id, modifier_id, name, price) VALUES (?, ?, ?, ?)");
     
+    $get_prod = $mysqli->prepare("SELECT name, price FROM products WHERE id = ?");
+    $get_var = $mysqli->prepare("SELECT name, price FROM product_variations WHERE id = ?");
+    $get_mod = $mysqli->prepare("SELECT name, price FROM modifiers WHERE id = ?");
+
     $processed_ids = [];
 
-    // PHASE 1: RECONCILE CART (Strips old auto-discounts to prevent stacking)
     foreach ($items as $item) {
         $p_id = (int)$item['id']; $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; $qty = (int)$item['qty'];
         $item_disc_amt = !empty($item['discount_amount']) ? (float)$item['discount_amount'] : 0.00;
         $item_disc_note = !empty($item['discount_note']) ? $item['discount_note'] : null;
         
-        if ($item_disc_note && (strpos($item_disc_note, 'SC') !== false || strpos($item_disc_note, 'PWD') !== false)) {
+        if ($item_disc_note && (strpos($item_disc_note, 'SC') !== false || strpos($item_disc_note, 'PWD') !== false || strpos($item_disc_note, 'Auto:') !== false)) {
             $item_disc_amt = 0.00; $item_disc_note = null; 
         }
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
         $key = $p_id . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids);
 
+        // Fetch Prices Securely
+        $base_p = 0; $p_name = ''; $v_name = null;
+        $get_prod->bind_param('i', $p_id); $get_prod->execute();
+        if ($p_data = $get_prod->get_result()->fetch_assoc()) { $base_p = (float)$p_data['price']; $p_name = $p_data['name']; }
+
+        if ($v_id) {
+            $get_var->bind_param('i', $v_id); $get_var->execute();
+            if ($v_data = $get_var->get_result()->fetch_assoc()) { $base_p = (float)$v_data['price']; $v_name = $v_data['name']; }
+        }
+
+        $mod_total = 0; $resolved_mods = [];
+        foreach (($item['modifiers'] ?? []) as $m) {
+            $mid = (int)$m['id'];
+            $get_mod->bind_param('i', $mid); $get_mod->execute();
+            if ($md = $get_mod->get_result()->fetch_assoc()) {
+                $mod_total += (float)$md['price']; 
+                $resolved_mods[] = ['id' => $mid, 'name' => $md['name'], 'price' => (float)$md['price']];
+            }
+        }
+        $line_total = (($base_p + $mod_total) * $qty) - $item_disc_amt;
+
         if (isset($existing_map[$key])) {
             $existing_id = $existing_map[$key]['id'];
-            $p_data = $mysqli->query("SELECT price FROM products WHERE id = $p_id")->fetch_assoc();
-            $base_p = $v_id ? (float)($mysqli->query("SELECT price FROM product_variations WHERE id = $v_id")->fetch_assoc()['price']) : (float)$p_data['price'];
-            $mod_total = 0; foreach (($item['modifiers'] ?? []) as $m) { $mod_total += (float)$m['price']; }
-            $line_total = (($base_p + $mod_total) * $qty) - $item_disc_amt;
-
             $upd_item->bind_param('iddsi', $qty, $line_total, $item_disc_amt, $item_disc_note, $existing_id);
             $upd_item->execute();
             $processed_ids[] = $existing_id;
         } else {
-            $p_data = $mysqli->query("SELECT name, price FROM products WHERE id = $p_id")->fetch_assoc();
-            $base_p = (float)$p_data['price']; $p_name = $p_data['name']; $v_name = null;
-            if ($v_id) {
-                $v_data = $mysqli->query("SELECT name, price FROM product_variations WHERE id = $v_id")->fetch_assoc();
-                $base_p = (float)$v_data['price']; $v_name = $v_data['name'];
-            }
-            $mod_total = 0; $resolved_mods = [];
-            foreach (($item['modifiers'] ?? []) as $m) {
-                $md = $mysqli->query("SELECT name, price FROM modifiers WHERE id = ".(int)$m['id'])->fetch_assoc();
-                $mod_total += (float)$md['price']; $resolved_mods[] = ['id' => $m['id'], 'name' => $md['name'], 'price' => (float)$md['price']];
-            }
-            $line_total = (($base_p + $mod_total) * $qty) - $item_disc_amt;
             $ins_item->bind_param('iiissdddsid', $order_id, $p_id, $v_id, $p_name, $v_name, $base_p, $mod_total, $item_disc_amt, $item_disc_note, $qty, $line_total);
             $ins_item->execute();
             $new_id = $mysqli->insert_id; $processed_ids[] = $new_id;
-            foreach ($resolved_mods as $rm) { $ins_mod->bind_param('iisd', $new_id, $rm['id'], $rm['name'], $rm['price']); $ins_mod->execute(); }
+            foreach ($resolved_mods as $rm) { 
+                $ins_mod->bind_param('iisd', $new_id, $rm['id'], $rm['name'], $rm['price']); 
+                $ins_mod->execute(); 
+            }
         }
     }
 
     foreach ($existing_map as $e_item) {
         if (!in_array($e_item['id'], $processed_ids)) {
             $del_item->bind_param('i', $e_item['id']); $del_item->execute();
-            $mysqli->query("DELETE FROM order_item_modifiers WHERE order_item_id = " . (int)$e_item['id']);
+            $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
+            $del_mods->bind_param('i', $e_item['id']); $del_mods->execute(); $del_mods->close();
         }
     }
 
-    // PHASE 2: 1 FOOD + 1 DRINK SENIOR MATH
+    // PHASE 2: ADVANCED GLOBAL DISCOUNT MATH
     $global_discount_amount = 0;
+    $EXCLUDED_CATEGORY_ID = 7; 
     
+    $oi_stmt = $mysqli->prepare("SELECT o.id, p.category_id, c.cat_type, (o.base_price + o.modifier_total) as unit_price, o.quantity, o.line_total FROM order_items o JOIN products p ON o.product_id = p.id JOIN categories c ON p.category_id = c.id WHERE o.order_id = ?");
+    $oi_stmt->bind_param('i', $order_id);
+    $oi_stmt->execute();
+    $db_items = $oi_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $oi_stmt->close();
+
+    $upd_disc_stmt = $mysqli->prepare("UPDATE order_items SET discount_amount = discount_amount + ?, discount_note = CONCAT_WS(' | ', discount_note, ?), line_total = line_total - ? WHERE id = ?");
+
     if ($discount_id) {
-        $d_data = $mysqli->query("SELECT type, value, target_type, name FROM discounts WHERE id = $discount_id")->fetch_assoc();
+        $d_stmt = $mysqli->prepare("SELECT type, value, target_type, name FROM discounts WHERE id = ?");
+        $d_stmt->bind_param('i', $discount_id);
+        $d_stmt->execute();
+        $d_data = $d_stmt->get_result()->fetch_assoc();
+        $d_stmt->close();
+
         if ($d_data) {
             $disc_val = (float)$d_data['value'];
             $multiplier = ($disc_val <= 1) ? $disc_val : ($disc_val / 100);
@@ -116,66 +174,107 @@ try {
             
             if ($is_senior) {
                 $food_items = []; $drink_items = [];
-                $oi_res = $mysqli->query("SELECT o.id, p.category_id, o.base_price, o.modifier_total, o.quantity FROM order_items o JOIN products p ON o.product_id = p.id WHERE o.order_id = $order_id");
-                
-                while ($oi = $oi_res->fetch_assoc()) {
-                    $cat_type = $mysqli->query("SELECT cat_type FROM categories WHERE id = " . $oi['category_id'])->fetch_assoc()['cat_type'] ?? 'food';
-                    $unit_price = (float)$oi['base_price'] + (float)$oi['modifier_total'];
+                foreach ($db_items as $oi) {
+                    if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue; 
                     for ($i=0; $i < (int)$oi['quantity']; $i++) { 
-                        if ($cat_type === 'drink') { $drink_items[] = ['id' => $oi['id'], 'price' => $unit_price]; } 
-                        else { $food_items[] = ['id' => $oi['id'], 'price' => $unit_price]; }
+                        if ($oi['cat_type'] === 'drink') { $drink_items[] = ['id' => $oi['id'], 'price' => (float)$oi['unit_price']]; } 
+                        else { $food_items[] = ['id' => $oi['id'], 'price' => (float)$oi['unit_price']]; }
                     }
                 }
-                
-                // Sort both highest to lowest
                 usort($food_items, function($a, $b) { return $b['price'] <=> $a['price']; });
                 usort($drink_items, function($a, $b) { return $b['price'] <=> $a['price']; });
                 
                 $senior_count = count($senior_details) > 0 ? count($senior_details) : 1;
-                
-                // Grab Top N Food and Top N Drinks
                 $applicable = array_merge(array_slice($food_items, 0, $senior_count), array_slice($drink_items, 0, $senior_count));
                 
-                $discount_updates = [];
+                $discount_updates = []; $global_senior_names = []; 
                 foreach($applicable as $index => $it) {
                     $amt = ($d_data['type'] === 'percent') ? $it['price'] * $multiplier : $disc_val;
-                    
-                    // Match to specific senior name & type
                     $s_idx = $index % $senior_count;
                     $s_type = !empty($senior_details[$s_idx]['type']) ? $senior_details[$s_idx]['type'] : 'SC';
-                    $s_name = !empty($senior_details[$s_idx]['name']) ? $senior_details[$s_idx]['name'] : 'Senior';
+                    $s_name = !empty($senior_details[$s_idx]['name']) ? $senior_details[$s_idx]['name'] : 'Guest';
+                    $s_id   = !empty($senior_details[$s_idx]['id']) ? $senior_details[$s_idx]['id'] : 'Unknown ID';
                     
+                    $global_senior_names[] = "$s_type: $s_name (ID: $s_id)";
                     if(!isset($discount_updates[$it['id']])) $discount_updates[$it['id']] = ['amount' => 0, 'names' => []];
                     $discount_updates[$it['id']]['amount'] += $amt;
                     $discount_updates[$it['id']]['names'][] = "$s_type [$s_name]";
                 }
                 
                 foreach($discount_updates as $oid => $dup) {
-                    $amt = $dup['amount']; 
-                    $note_str = implode(', ', $dup['names']);
-                    $mysqli->query("UPDATE order_items SET discount_amount = discount_amount + $amt, discount_note = CONCAT_WS(' | ', discount_note, '$note_str'), line_total = line_total - $amt WHERE id = $oid");
+                    $amt = $dup['amount']; $note_str = implode(', ', $dup['names']);
+                    $upd_disc_stmt->bind_param('dsdi', $amt, $note_str, $amt, $oid);
+                    $upd_disc_stmt->execute();
                 }
-                $discount_note = "Applied to Specific Items";
+                $discount_note = implode('|', array_unique($global_senior_names));
             } else {
-                $sub_res = $mysqli->query("SELECT COALESCE(SUM(line_total), 0) as total FROM order_items WHERE order_id = $order_id");
-                $subtotal = (float)$sub_res->fetch_assoc()['total'];
-                $global_discount_amount = ($d_data['type'] === 'percent') ? $subtotal * $multiplier : $disc_val;
+                $subtotal_applicable = 0;
+                foreach ($db_items as $oi) {
+                    if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue;
+                    $subtotal_applicable += (float)$oi['line_total'];
+                }
+                $global_discount_amount = ($d_data['type'] === 'percent') ? $subtotal_applicable * $multiplier : $disc_val;
             }
+        }
+    } else if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
+        $c_type = $custom_discount['type'];
+        $c_val = (float)$custom_discount['val'];
+        $c_target = $custom_discount['target'];
+        $c_note = $custom_discount['note'];
+        
+        $target_subtotal = 0; $discount_updates = [];
+
+        foreach ($db_items as $it) {
+            if ($it['category_id'] == $EXCLUDED_CATEGORY_ID) continue; 
+            
+            $match = false;
+            if ($c_target === 'all') $match = true;
+            else if ($c_target === 'food' && $it['cat_type'] === 'food') $match = true;
+            else if ($c_target === 'drink' && $it['cat_type'] === 'drink') $match = true;
+            else if ($c_target === 'specific' && !empty($custom_discount['target_cats']) && in_array($it['category_id'], $custom_discount['target_cats'])) $match = true;
+            
+            if ($match) {
+                $item_raw_total = (float)$it['unit_price'] * (int)$it['quantity'];
+                $target_subtotal += $item_raw_total;
+                if ($c_type === 'percent') {
+                    $deduction = $item_raw_total * ($c_val / 100);
+                    if(!isset($discount_updates[$it['id']])) $discount_updates[$it['id']] = ['amount' => 0];
+                    $discount_updates[$it['id']]['amount'] += $deduction;
+                }
+            }
+        }
+
+        if ($c_type === 'percent') {
+            foreach($discount_updates as $oid => $dup) {
+                $amt = $dup['amount']; 
+                $note_str = 'Auto: ' . $c_note;
+                $upd_disc_stmt->bind_param('dsdi', $amt, $note_str, $amt, $oid);
+                $upd_disc_stmt->execute();
+            }
+            $discount_note = "Custom: $c_note";
+        } else {
+            $global_discount_amount = min($c_val, $target_subtotal);
+            $discount_note = $c_note;
         }
     }
     
     // PHASE 3: FINAL MATH
-    $sums = $mysqli->query("SELECT COALESCE(SUM((base_price + modifier_total) * quantity), 0) as raw_sub, COALESCE(SUM(line_total), 0) as discounted_sub FROM order_items WHERE order_id = $order_id")->fetch_assoc();
+    $sum_stmt = $mysqli->prepare("SELECT COALESCE(SUM((base_price + modifier_total) * quantity), 0) as raw_sub, COALESCE(SUM(line_total), 0) as discounted_sub FROM order_items WHERE order_id = ?");
+    $sum_stmt->bind_param('i', $order_id);
+    $sum_stmt->execute();
+    $sums = $sum_stmt->get_result()->fetch_assoc();
+    $sum_stmt->close();
+
     $raw_subtotal = (float)$sums['raw_sub'];
     $discounted_subtotal = (float)$sums['discounted_sub'];
     
     $grand_total = max(0, $discounted_subtotal - $global_discount_amount);
     $total_order_discount = ($raw_subtotal - $discounted_subtotal) + $global_discount_amount;
     
-    $safe_note = $discount_note ? "'" . $mysqli->real_escape_string($discount_note) . "'" : "NULL";
-    $safe_disc_id = $discount_id ? (int)$discount_id : "NULL";
-
-    $mysqli->query("UPDATE orders SET discount_id = $safe_disc_id, discount_total = $total_order_discount, discount_note = $safe_note, subtotal = $raw_subtotal, grand_total = $grand_total, updated_at = NOW() WHERE id = $order_id");
+    $fin_stmt = $mysqli->prepare("UPDATE orders SET discount_id = ?, discount_total = ?, discount_note = ?, subtotal = ?, grand_total = ?, updated_at = NOW() WHERE id = ?");
+    $fin_stmt->bind_param('idsddi', $discount_id, $total_order_discount, $discount_note, $raw_subtotal, $grand_total, $order_id);
+    $fin_stmt->execute();
+    $fin_stmt->close();
 
     $mysqli->commit();
     echo json_encode(['success' => true, 'order_id' => $order_id, 'total' => number_format($grand_total, 2)]);

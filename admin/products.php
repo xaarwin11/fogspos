@@ -5,21 +5,19 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
 
 $mysqli = get_db_conn();
 
-// 1. Fetch Categories for Dropdown
 $cats = $mysqli->query("SELECT * FROM categories ORDER BY sort_order ASC");
-
-// 2. Fetch All Modifiers (to show checkboxes)
 $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY name ASC");
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Menu Manager - FogsTasa</title>
+    <link rel="icon" type="image/png" href="../assets/img/favicon.png">
     <link rel="stylesheet" href="../assets/css/main.css">
     <script src="../assets/js/sweetalert2.js"></script>
     <style>
-        /* ADMIN LAYOUT: Split Screen (List vs Editor) */
         .admin-layout { 
             display: grid; 
             grid-template-columns: 320px 1fr; 
@@ -30,74 +28,59 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             height: calc(100vh - 100px); 
         }
         
-        /* LEFT PANEL: Product List */
         .list-panel { 
             background: white; 
             border-radius: 12px; 
             border: 1px solid var(--border); 
-            display: flex; 
-            flex-direction: column; 
+            display: flex; flex-direction: column; 
             overflow: hidden; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
         }
-        .list-header { 
-            padding: 15px; 
-            border-bottom: 1px solid var(--border); 
-            background: #f8fafc; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-        }
-        .product-list { 
-            overflow-y: auto; 
-            flex: 1; 
-        }
+        .list-header { padding: 15px; border-bottom: 1px solid var(--border); background: var(--bg-dark); }
+        .list-items { overflow-y: auto; flex: 1; }
+        
         .list-item { 
-            padding: 15px; 
-            border-bottom: 1px solid #f1f5f9; 
-            cursor: pointer; 
-            transition: 0.1s; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
+            padding: 12px 15px; border-bottom: 1px solid #eee; 
+            cursor: pointer; display: flex; justify-content: space-between;
         }
-        .list-item:hover { background: #fdf2f8; } /* Light pink hover */
-        .list-item.active { 
-            background: #fff1f2; 
-            border-left: 4px solid var(--brand); 
-        }
-        .item-meta { font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 2px; }
+        .list-item:hover { background: #fdfaf6; }
+        .list-item.active { background: var(--brand); color: white; }
+        .list-item.active .text-muted { color: #f0f0f0; }
 
-        /* RIGHT PANEL: Editor */
         .editor-panel { 
-            background: white; 
-            border-radius: 12px; 
-            border: 1px solid var(--border); 
-            padding: 30px; 
+            background: white; border-radius: 12px; 
+            border: 1px solid var(--border); padding: 30px; 
             overflow-y: auto; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
 
-        /* Form Elements */
-        label { display: block; margin-bottom: 6px; font-weight: 600; color: var(--text-muted); font-size: 0.9rem; }
-        .form-control { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; margin-bottom: 15px; }
-        .form-control:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(107, 66, 38, 0.1); }
-
-        /* Variations Table */
-        .var-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 15px; margin-bottom: 20px; }
-        .var-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .var-table th { text-align: left; font-size: 0.8rem; color: var(--text-muted); border-bottom: 1px solid #ddd; padding: 5px; }
-        .var-table td { padding: 5px 0; }
-        .var-input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; }
-
-        /* Modifier Grid */
-        .mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
-        .mod-check { 
-            display: flex; align-items: center; gap: 8px; padding: 10px; 
-            border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: 0.1s;
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-weight: bold; margin-bottom: 8px; color: var(--text-main); }
+        .form-control { 
+            width: 100%; padding: 10px 15px; border: 1px solid #ccc; 
+            border-radius: 8px; font-size: 1rem; 
         }
-        .mod-check:hover { background: #fafafa; border-color: var(--brand-light); }
-        .mod-check input:checked + span { font-weight: 700; color: var(--brand); }
+        
+        .var-row { display: grid; grid-template-columns: 1fr 100px 50px; gap: 10px; margin-bottom: 10px; }
+        .mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+
+        /* --- MOBILE RESPONSIVE FIX --- */
+        @media (max-width: 900px) {
+            .admin-layout { 
+                grid-template-columns: 1fr; 
+                height: auto; 
+                padding: 10px; 
+                margin: 10px auto;
+                gap: 15px;
+            }
+            .list-panel { 
+                height: 350px; /* Limits the list height so it doesn't take the whole screen */
+            }
+            .editor-panel { 
+                height: auto; 
+                overflow: visible; 
+                padding: 15px; 
+            }
+            .var-row { grid-template-columns: 1fr 80px 40px; }
+        }
     </style>
 </head>
 <body>
@@ -105,237 +88,207 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
     <?php include '../components/navbar.php'; ?>
 
     <div class="admin-layout">
-        
         <div class="list-panel">
             <div class="list-header">
-                <span style="font-weight:700; color:var(--text-main);">All Products</span>
-                <button class="btn small" onclick="newProduct()">+ New</button>
+                <input type="text" id="searchMenu" class="form-control" placeholder="Search menu..." onkeyup="filterMenu()">
+                <button class="btn" style="width:100%; margin-top:10px;" onclick="newProduct()">+ New Product</button>
             </div>
-            <div class="product-list" id="productList">
-                <div style="padding:20px; text-align:center; color:#999;">Loading...</div>
+            <div class="list-items" id="productList">
+                <div style="padding:20px; text-align:center; color:gray;">Loading...</div>
             </div>
         </div>
 
         <div class="editor-panel">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h2 id="editorTitle" style="margin:0; color:var(--brand);">New Product</h2>
-                <button type="button" class="btn danger" id="btnDelete" style="display:none; padding:8px 15px;" onclick="deleteCurrent()">
-                    Trash Icon 🗑️
-                </button>
-            </div>
+            <h2 id="editorTitle" style="margin-top:0; color:var(--brand-dark);">Select a Product</h2>
             
-            <form id="productForm">
-                <input type="hidden" name="id" id="prodId">
+            <form id="productForm" style="display:none;" onsubmit="event.preventDefault();">
+                <input type="hidden" id="prodId">
                 
-                <div style="display:grid; grid-template-columns: 2fr 1fr; gap:20px;">
-                    <div>
-                        <label>Product Name</label>
-                        <input type="text" id="prodName" class="form-control" required placeholder="e.g. Caramel Macchiato">
-                    </div>
-                    <div>
+                <div class="form-group">
+                    <label>Product Name</label>
+                    <input type="text" id="p_name" class="form-control" required>
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                    <div class="form-group">
                         <label>Category</label>
-                        <select id="prodCat" class="form-control">
+                        <select id="p_category" class="form-control">
                             <?php while($c = $cats->fetch_assoc()): ?>
                                 <option value="<?= $c['id'] ?>"><?= $c['name'] ?></option>
                             <?php endwhile; ?>
                         </select>
                     </div>
-                </div>
-
-                <div class="var-box">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <label style="margin:0;">Variations / Sizes</label>
-                        <button type="button" class="btn secondary small" onclick="addVariationRow()">+ Add Row</button>
-                    </div>
-                    <p style="font-size:0.8rem; color:#666; margin:5px 0 10px;">
-                        <i>Use this for Sizes (Regular, Large) or Types (Hot, Iced). If added, Base Price is ignored.</i>
-                    </p>
-                    
-                    <table class="var-table">
-                        <thead>
-                            <tr>
-                                <th>Variation Name</th>
-                                <th width="120">Price</th>
-                                <th width="40"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="varBody">
-                            </tbody>
-                    </table>
-
-                    <div id="basePriceGroup" style="margin-top:15px; border-top:1px dashed #ddd; padding-top:15px;">
-                        <label>Base Price (Single Size)</label>
-                        <input type="number" id="prodPrice" class="form-control" style="width:150px; margin-bottom:0;" placeholder="0.00">
+                    <div class="form-group">
+                        <label>Base Price (₱)</label>
+                        <input type="number" id="p_price" class="form-control" step="0.01" value="0.00" required>
                     </div>
                 </div>
 
-                <div style="margin-top:20px;">
-                    <label>Allowed Modifiers (Add-ons)</label>
+                <div class="form-group" style="background:#f9fafb; padding:15px; border-radius:8px; border:1px solid #eee;">
+                    <label style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>Sizes / Variations</span>
+                        <button type="button" class="btn secondary" style="padding:5px 10px;" onclick="addVariation()">+ Add Size</button>
+                    </label>
+                    <p style="font-size:0.8rem; color:gray; margin-top:0;">If you add variations, the Base Price above is ignored.</p>
+                    <div id="variationsContainer"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>Specific Add-ons / Modifiers</label>
+                    <p style="font-size:0.8rem; color:gray; margin-top:0;">(Category-wide modifiers are handled in Settings > Categories)</p>
                     <div class="mod-grid">
                         <?php while($m = $mods->fetch_assoc()): ?>
-                        <label class="mod-check">
-                            <input type="checkbox" name="modifiers" value="<?= $m['id'] ?>" class="mod-checkbox">
-                            <span><?= $m['name'] ?> (+<?= $m['price'] ?>)</span>
-                        </label>
+                            <label style="display:flex; align-items:center; gap:8px; padding:10px; border:1px solid #eee; border-radius:6px; cursor:pointer;">
+                                <input type="checkbox" class="mod-cb" value="<?= $m['id'] ?>">
+                                <span><?= $m['name'] ?> <small style="color:var(--brand)">+₱<?= $m['price'] ?></small></span>
+                            </label>
                         <?php endwhile; ?>
                     </div>
                 </div>
 
-                <div style="margin-top:30px; border-top:1px solid #eee; padding-top:20px; text-align:right;">
-                    <button type="button" class="btn secondary" onclick="newProduct()" style="margin-right:10px;">Cancel</button>
-                    <button type="submit" class="btn success" style="padding: 12px 30px; font-size:1rem;">Save Product</button>
+                <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
+
+                <div style="display:flex; justify-content:space-between;">
+                    <button type="button" class="btn danger" id="btnDelete" onclick="deleteCurrent()">🗑️ Delete Product</button>
+                    <button type="button" class="btn success" id="btnSave" onclick="saveCurrent()" style="padding:10px 30px; font-size:1.1rem;">Save Product</button>
                 </div>
             </form>
         </div>
-
     </div>
 
     <script>
-        // --- GLOBAL STATE ---
-        let allProducts = [];
-
-        // --- INIT ---
+        let products = [];
+        
         document.addEventListener('DOMContentLoaded', loadProducts);
 
-        // --- 1. LOAD FULL DATA ---
+        // --- 1. FETCH DATA ---
         function loadProducts() {
-            fetch('../api/get_products.php') 
-            .then(r => r.json())
-            .then(data => {
-                allProducts = data.products;
-                renderList();
-            })
-            .catch(err => console.error(err));
+            fetch('../api/get_products.php')
+                .then(r => r.json())
+                .then(data => {
+                    if(data.success) {
+                        products = Object.values(data.products);
+                        renderList();
+                    }
+                });
         }
 
         // --- 2. RENDER LIST ---
         function renderList() {
+            const term = document.getElementById('searchMenu').value.toLowerCase();
             const list = document.getElementById('productList');
             list.innerHTML = '';
             
-            if(allProducts.length === 0) {
-                list.innerHTML = '<div style="padding:20px; text-align:center;">No products yet.</div>';
-                return;
-            }
-
-            allProducts.forEach(p => {
-                const item = document.createElement('div');
-                item.className = 'list-item';
-                // Show variation count badge if any
-                const varBadge = p.variations.length > 0 ? `<span class="badge">${p.variations.length} Sizes</span>` : '';
-                
-                item.innerHTML = `
-                    <div>
-                        <div style="font-weight:600;">${p.name}</div>
-                        <span class="item-meta">${p.category_name}</span>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-weight:bold; color:var(--brand);">₱${parseFloat(p.price).toFixed(2)}</div>
-                        ${varBadge}
+            let filtered = products.filter(p => p.name.toLowerCase().includes(term));
+            
+            filtered.forEach(p => {
+                const isActive = document.getElementById('prodId').value == p.id ? 'active' : '';
+                list.innerHTML += `
+                    <div class="list-item ${isActive}" onclick="editProduct(${p.id})">
+                        <span>${p.name}</span>
+                        <span class="text-muted" style="font-size:0.9rem;">₱${p.price}</span>
                     </div>
                 `;
-                item.onclick = () => editProduct(p, item);
-                list.appendChild(item);
             });
         }
 
-        // --- 3. EDITOR ACTIONS ---
+        function filterMenu() { renderList(); }
+
+        // --- 3. EDITOR LOGIC ---
         function newProduct() {
-            // Reset Form
-            document.getElementById('productForm').reset();
-            document.getElementById('prodId').value = '';
-            document.getElementById('editorTitle').innerText = 'New Product';
-            document.getElementById('varBody').innerHTML = '';
+            document.getElementById('productForm').style.display = 'block';
+            document.getElementById('editorTitle').innerText = 'Create New Product';
             document.getElementById('btnDelete').style.display = 'none';
-            document.getElementById('basePriceGroup').style.display = 'block';
             
-            // Clear Modifiers
-            document.querySelectorAll('.mod-checkbox').forEach(c => c.checked = false);
+            document.getElementById('prodId').value = '';
+            document.getElementById('p_name').value = '';
+            document.getElementById('p_price').value = '0.00';
+            document.getElementById('variationsContainer').innerHTML = '';
             
-            // Clear Active List Item
-            document.querySelectorAll('.list-item').forEach(i => i.classList.remove('active'));
+            document.querySelectorAll('.mod-cb').forEach(cb => cb.checked = false);
+            renderList();
+
+            // Mobile Auto-Scroll
+            if(window.innerWidth <= 900) {
+                document.querySelector('.editor-panel').scrollIntoView({behavior: 'smooth'});
+            }
         }
 
-        function editProduct(p, itemEl) {
-            // Highlight in List
-            document.querySelectorAll('.list-item').forEach(i => i.classList.remove('active'));
-            if(itemEl) itemEl.classList.add('active');
+        function editProduct(id) {
+            const p = products.find(x => x.id == id);
+            if(!p) return;
 
-            // Populate Fields
-            document.getElementById('prodId').value = p.id;
-            document.getElementById('prodName').value = p.name;
-            document.getElementById('prodCat').value = p.category_id;
-            document.getElementById('prodPrice').value = p.price;
-            document.getElementById('editorTitle').innerText = 'Editing: ' + p.name;
+            document.getElementById('productForm').style.display = 'block';
+            document.getElementById('editorTitle').innerText = 'Edit: ' + p.name;
             document.getElementById('btnDelete').style.display = 'block';
-
-            // Populate Variations
-            const tbody = document.getElementById('varBody');
-            tbody.innerHTML = '';
-            if(p.variations && p.variations.length > 0) {
-                p.variations.forEach(v => addVariationRow(v.name, v.price));
-                document.getElementById('basePriceGroup').style.display = 'none'; // Hide base price if vars exist
-            } else {
-                document.getElementById('basePriceGroup').style.display = 'block';
-            }
-
-            // Populate Modifiers
-            document.querySelectorAll('.mod-checkbox').forEach(c => c.checked = false);
-            if(p.modifiers) {
-                p.modifiers.forEach(mid => {
-                    const cb = document.querySelector(`.mod-checkbox[value="${mid}"]`);
-                    if(cb) cb.checked = true;
-                });
-            }
-        }
-
-        function addVariationRow(name = '', price = '') {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><input type="text" class="var-input var-name" placeholder="Size/Type" value="${name}"></td>
-                <td><input type="number" class="var-input var-price" placeholder="0.00" value="${price}"></td>
-                <td><button type="button" class="btn secondary small" onclick="removeRow(this)" style="color:var(--danger); border:none;">✕</button></td>
-            `;
-            document.getElementById('varBody').appendChild(tr);
             
-            // Hide base price because we are using vars now
-            document.getElementById('basePriceGroup').style.display = 'none';
+            document.getElementById('prodId').value = p.id;
+            document.getElementById('p_name').value = p.name;
+            document.getElementById('p_category').value = p.category_id;
+            document.getElementById('p_price').value = p.price;
+
+            // Load Variations
+            const vCon = document.getElementById('variationsContainer');
+            vCon.innerHTML = '';
+            if(p.variations) {
+                p.variations.forEach(v => addVariation(v.id, v.name, v.price));
+            }
+
+            // Load Modifiers
+            document.querySelectorAll('.mod-cb').forEach(cb => {
+                cb.checked = p.modifiers && p.modifiers.includes(parseInt(cb.value));
+            });
+
+            renderList();
+
+            // Mobile Auto-Scroll
+            if(window.innerWidth <= 900) {
+                document.querySelector('.editor-panel').scrollIntoView({behavior: 'smooth'});
+            }
         }
 
-        function removeRow(btn) {
-            btn.closest('tr').remove();
-            // Show base price if no rows left
-            if(document.getElementById('varBody').children.length === 0) {
-                document.getElementById('basePriceGroup').style.display = 'block';
-            }
+        function addVariation(id = '', name = '', price = '') {
+            const html = `
+                <div class="var-row">
+                    <input type="hidden" class="v_id" value="${id}">
+                    <input type="text" class="form-control v_name" placeholder="Size (e.g. Large)" value="${name}">
+                    <input type="number" class="form-control v_price" placeholder="Price" step="0.01" value="${price}">
+                    <button type="button" class="btn danger" onclick="this.parentElement.remove()">X</button>
+                </div>
+            `;
+            document.getElementById('variationsContainer').insertAdjacentHTML('beforeend', html);
         }
 
         // --- 4. SAVE ---
-        document.getElementById('productForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const btn = this.querySelector('button[type="submit"]');
+        function saveCurrent() {
+            if(!document.getElementById('p_name').value) return Swal.fire('Error', 'Name is required', 'error');
+
+            const btn = document.getElementById('btnSave');
             btn.innerText = "Saving..."; btn.disabled = true;
 
-            // Gather Variations
-            let vars = [];
-            document.querySelectorAll('#varBody tr').forEach(tr => {
-                let name = tr.querySelector('.var-name').value;
-                let price = tr.querySelector('.var-price').value;
-                if(name && price) vars.push({name, price});
+            let payload = {
+                id: document.getElementById('prodId').value,
+                name: document.getElementById('p_name').value,
+                category_id: document.getElementById('p_category').value,
+                price: document.getElementById('p_price').value,
+                variations: [],
+                modifiers: []
+            };
+
+            document.querySelectorAll('.var-row').forEach(row => {
+                const vn = row.querySelector('.v_name').value;
+                const vp = row.querySelector('.v_price').value;
+                if(vn && vp) {
+                    payload.variations.push({
+                        id: row.querySelector('.v_id').value,
+                        name: vn, price: vp
+                    });
+                }
             });
 
-            // Gather Modifiers
-            let mods = [];
-            document.querySelectorAll('.mod-checkbox:checked').forEach(cb => mods.push(cb.value));
-
-            const payload = {
-                id: document.getElementById('prodId').value,
-                name: document.getElementById('prodName').value,
-                category_id: document.getElementById('prodCat').value,
-                price: document.getElementById('prodPrice').value,
-                variations: vars,
-                modifiers: mods
-            };
+            document.querySelectorAll('.mod-cb:checked').forEach(cb => {
+                payload.modifiers.push(parseInt(cb.value));
+            });
 
             fetch('../api/save_product.php', {
                 method: 'POST',
@@ -345,15 +298,14 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             .then(r => r.json())
             .then(data => {
                 if(data.success) {
-                    Swal.fire({ icon: 'success', title: 'Saved!', timer: 1000, showConfirmButton: false });
+                    Swal.fire({icon: 'success', title: 'Saved!', timer: 1000, showConfirmButton: false});
                     loadProducts();
-                    if(!payload.id) newProduct(); // Clear if new
                 } else {
                     Swal.fire('Error', data.error, 'error');
                 }
             })
             .finally(() => { btn.innerText = "Save Product"; btn.disabled = false; });
-        });
+        }
 
         // --- 5. DELETE ---
         function deleteCurrent() {

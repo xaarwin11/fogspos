@@ -173,6 +173,7 @@ nav {
 .cart-section {
     background: var(--surface); border-radius: var(--radius);
     display: flex; flex-direction: column; height: 100%; border: 1px solid var(--border);
+    min-height: 0; /* THE FIX: Forces flexbox to scroll instead of expanding infinitely */
 }
 
 /* Mobile Specific Buttons */
@@ -237,4 +238,65 @@ nav {
 
 @media (max-width: 480px) {
     .products-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* --- SC/PWD TOGGLE BUTTONS --- */
+.radio-toggle { display: flex; gap: 10px; margin-bottom: 10px; }
+.radio-toggle input[type="radio"] { display: none; }
+.radio-toggle label { 
+    flex: 1; padding: 12px; text-align: center; background: #f3f4f6; 
+    color: gray; border-radius: 8px; cursor: pointer; 
+    border: 2px solid #ccc; font-weight: bold; transition: 0.2s;
+}
+.radio-toggle input[type="radio"]:checked + label.sc-label { background: var(--brand); color: white; border-color: var(--brand); }
+.radio-toggle input[type="radio"]:checked + label.pwd-label { background: var(--blue); color: white; border-color: var(--blue); }
+
+/* --- MOBILE BURGER MENU --- */
+.burger-menu {
+    display: none; background: transparent; border: none; 
+    color: white; font-size: 1.8rem; cursor: pointer; padding: 5px;
+}
+@media (max-width: 900px) {
+    nav { 
+        position: relative; 
+        display: flex; 
+        flex-direction: row; /* Force side-by-side */
+        justify-content: space-between; /* Logo left, Burger right */
+        align-items: center; 
+        padding: 10px 15px; 
+    }
+
+    .burger-menu { 
+        display: block; 
+        order: 2; /* Ensures it stays on the right */
+    }
+
+    .brand {
+        order: 1; /* Ensures it stays on the left */
+        font-size: 1rem; /* Slightly smaller to ensure fit */
+    }
+
+    .nav-links {
+        display: none; 
+        flex-direction: column; 
+        width: 100%; 
+        background: var(--brand-dark); 
+        position: absolute; 
+        top: 100%; 
+        left: 0; 
+        padding: 15px; 
+        z-index: 1000; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+        gap: 5px;
+    }
+
+    .nav-links.active { 
+        display: flex; 
+    }
+}
+/* Mobile Table Scroller */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }

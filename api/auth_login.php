@@ -3,7 +3,7 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 // Safely grab the PIN from either JSON or FormData
@@ -27,6 +27,7 @@ try {
     
     while($user = $res->fetch_assoc()) {
         if(password_verify($pin, $user['passcode'])) {
+            session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             

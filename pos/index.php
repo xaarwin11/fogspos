@@ -2,6 +2,10 @@
 require_once '../db.php';
 session_start();
 if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
+// Generate token if it doesn't exist
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -10,7 +14,9 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS - FogsTasa</title>
     <link rel="stylesheet" href="../assets/css/main.css">
+    <link rel="icon" type="image/png" href="../assets/img/favicon.png">
     <script src="../assets/js/sweetalert2.js"></script>
+    <meta name="csrf-token" content="<?= $_SESSION['csrf_token'] ?>">
     <style>
         .category-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 10px; scrollbar-width: none; }
         .category-scroll::-webkit-scrollbar { display: none; }
@@ -78,6 +84,9 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
                 </div>
 
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:15px;">
+                    <button class="btn secondary" onclick="printOrder('kitchen', event)">🖨️ Send Items</button>
+                    <button class="btn secondary" onclick="printOrder('bill', event)">📄 Print Bill</button>
+                    
                     <button class="btn secondary" onclick="applyDiscountPopup()">🏷️ Disc</button>
                     <button class="btn secondary" onclick="clearCart()">🗑️ Clear</button>
                     <button class="btn" onclick="saveOrder()" style="grid-column: span 2;">Save Order</button>
@@ -139,56 +148,22 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
             Swal.fire({ title: 'Takeout Orders', html: html + '</div>', showConfirmButton: false });
         }
 
-        function newTakeout() {
-            state.activeOrderId = 'new';
-            document.getElementById('tableName').innerText = 'New Takeout';
-            Swal.close();
-        }
-
-        async function loadTakeout(id) {
-            state.activeOrderId = id;
-            document.getElementById('tableName').innerText = 'Takeout #' + id;
-            Swal.close();
-            const r = await fetch(`../api/get_active_order.php?order_id=${id}`);
-            const d = await r.json();
-            if(d.success) {
-                state.cart = d.items;
-                // FIX: Restore the global order state from the database!
-                state.discount_amount = parseFloat(d.order_info.discount_total) || 0;
-                state.discount_note = d.order_info.discount_note || '';
-                state.discount_id = d.order_info.discount_id || null;
-                state.amount_paid = parseFloat(d.order_info.amount_paid) || 0;
-                
-                document.getElementById('txtGrandTotal').innerText = '₱' + parseFloat(d.order_info.grand_total).toFixed(2);
+        async function newTakeout() {
+            const { value: customerName } = await Swal.fire({
+                title: 'Takeout Name',
+                input: 'text',
+                inputPlaceholder: 'Enter customer name (optional)',
+                showCancelButton: true,
+                confirmButtonColor: '#6B4226'
+            });
+            
+            if (customerName !== undefined) {
+                state.activeOrderId = 'new';
+                state.customer_name = customerName || 'Guest';
+                document.getElementById('tableName').innerText = 'Takeout: ' + state.customer_name;
+                Swal.close();
+                renderCart();
             }
-            renderCart();
-        }
-
-        async function pickTable(id, num, status) {
-            state.activeTableId = id;
-            document.getElementById('tableName').innerText = 'Table ' + num;
-            Swal.close();
-            if(status === 'occupied') {
-                const r = await fetch(`../api/get_active_order.php?table_id=${id}`);
-                const d = await r.json();
-                if(d.success) {
-                    state.cart = d.items;
-                    // FIX: Restore the global order state from the database!
-                    state.discount_amount = parseFloat(d.order_info.discount_total) || 0;
-                    state.discount_note = d.order_info.discount_note || '';
-                    state.discount_id = d.order_info.discount_id || null;
-                    state.amount_paid = parseFloat(d.order_info.amount_paid) || 0;
-                    
-                    document.getElementById('txtGrandTotal').innerText = '₱' + parseFloat(d.order_info.grand_total).toFixed(2);
-                }
-            } else { 
-                state.cart = []; 
-                state.discount_amount = 0;
-                state.discount_note = '';
-                state.discount_id = null;
-                state.amount_paid = 0;
-            }
-            renderCart();
         }
     </script>
 </body>

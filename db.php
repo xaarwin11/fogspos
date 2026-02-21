@@ -1,4 +1,13 @@
 <?php
+// Turn off screen errors for production
+ini_set('display_errors', 0);
+ini_set('display_startup_errors', 0);
+error_reporting(E_ALL);
+
+// Turn on background logging
+ini_set('log_errors', 1);
+// Saves a file called 'error.log' in the same folder as db.php
+ini_set('error_log', __DIR__ . '/error.log');
 // fogs-app/db.php
 
 if (file_exists(__DIR__ . '/.env')) {

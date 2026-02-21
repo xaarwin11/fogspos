@@ -12,8 +12,8 @@ if (!empty($_SESSION['user_id'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FogsTasa Login</title>
-    
+    <title>FogsTasa's Cafe'</title>
+    <link rel="icon" type="image/png" href="../assets/img/favicon.png">
     <link rel="stylesheet" href="assets/css/main.css">
     <script src="assets/js/sweetalert2.js"></script> 
     <style>
@@ -46,6 +46,7 @@ if (!empty($_SESSION['user_id'])) {
             <button class="pin-btn" onclick="backspace()">⌫</button>
             
             <button class="pin-btn enter" onclick="login()">LOGIN</button>
+            <button class="pin-btn" style="grid-column: span 3; background: #8D6E63; color: white; border: none; width: 100%; height: 60px; border-radius: 12px; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; margin-top: 5px;" onclick="clockIn()">TIME CLOCK</button>
         </div>
     </div>
 
@@ -105,6 +106,29 @@ if (!empty($_SESSION['user_id'])) {
                 btn.innerText = originalText;
                 alert("Connection Error: " + err.message);
             });
+        }
+        function clockIn() {
+            if(pin.length < 1) {
+                Swal.fire({icon: 'warning', title: 'Enter PIN', text: 'Enter your PIN before clocking in or out.', confirmButtonColor: '#6B4226'});
+                return;
+            }
+
+            fetch('api/timeclock_pin.php', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passcode: pin }) 
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.success) {
+                    Swal.fire({
+                        icon: 'success', title: data.action === 'clocked_in' ? 'Clocked In' : 'Clocked Out',
+                        text: data.message, timer: 3000, showConfirmButton: false
+                    });
+                } else { Swal.fire({icon: 'error', title: 'Denied', text: data.error, confirmButtonColor: '#6B4226'}); }
+                clearPin();
+            })
+            .catch(err => { alert("Connection Error: " + err.message); clearPin(); });
         }
     </script>
 </body>
