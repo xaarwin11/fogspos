@@ -3,6 +3,9 @@ require_once '../db.php';
 session_start();
 if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
 
+// FIX: Generate the CSRF token if it doesn't exist
+if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
+
 $mysqli = get_db_conn();
 
 $cats = $mysqli->query("SELECT * FROM categories ORDER BY sort_order ASC");
@@ -16,6 +19,7 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
     <title>Menu Manager - FogsTasa</title>
     <link rel="icon" type="image/png" href="../assets/img/favicon.png">
     <link rel="stylesheet" href="../assets/css/main.css">
+    <meta name="csrf-token" content="<?= $_SESSION['csrf_token'] ?>">
     <script src="../assets/js/sweetalert2.js"></script>
     <style>
         .admin-layout { 
@@ -159,6 +163,9 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
     <script>
         let products = [];
         
+        // FIX: Helper to get CSRF token
+        const getCsrfToken = () => document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
         document.addEventListener('DOMContentLoaded', loadProducts);
 
         // --- 1. FETCH DATA ---
@@ -290,9 +297,13 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
                 payload.modifiers.push(parseInt(cb.value));
             });
 
+            // FIX: Added X-CSRF-Token to headers
             fetch('../api/save_product.php', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken()
+                },
                 body: JSON.stringify(payload)
             })
             .then(r => r.json())
@@ -321,9 +332,13 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
                 confirmButtonText: 'Delete'
             }).then((result) => {
                 if (result.isConfirmed) {
+                    // FIX: Added X-CSRF-Token to headers
                     fetch('../api/delete_product.php', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': getCsrfToken()
+                        },
                         body: JSON.stringify({id: id})
                     })
                     .then(r => r.json())

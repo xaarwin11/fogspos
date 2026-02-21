@@ -217,10 +217,11 @@ try {
             }
         }
     } else if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
-        $c_type = $custom_discount['type'];
-        $c_val = (float)$custom_discount['val'];
-        $c_target = $custom_discount['target'];
-        $c_note = $custom_discount['note'];
+        // FIX #1: Added safety fallbacks so missing data never crashes the math
+        $c_type = $custom_discount['type'] ?? 'amount';
+        $c_val = (float)($custom_discount['val'] ?? 0);
+        $c_target = $custom_discount['target'] ?? 'all';
+        $c_note = $custom_discount['note'] ?? 'Custom';
         
         $target_subtotal = 0; $discount_updates = [];
 
@@ -254,7 +255,8 @@ try {
             $discount_note = "Custom: $c_note";
         } else {
             $global_discount_amount = min($c_val, $target_subtotal);
-            $discount_note = $c_note;
+            // FIX #2: Ensured flat amounts are properly prefixed with "Custom: "
+            $discount_note = "Custom: $c_note";
         }
     }
     

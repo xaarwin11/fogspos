@@ -320,14 +320,9 @@ window.customOrderDiscount = async function() {
     
     if (formValues) {
         state.discount_id = null; state.senior_details = []; state.custom_discount = formValues;
-        
-        // ✨ MAGIC FIX: If there is an active table, auto-save instantly to update the screen math!
-        if(state.activeOrderId && state.activeOrderId !== 'new') { 
-            await saveOrder(true); 
-        } else { 
-            renderCart(); 
-            Swal.fire({title:'Applied', text: 'Will calculate accurately upon save.', icon:'success', timer: 1200, showConfirmButton: false});
-        }
+        Swal.fire({title:'Calculating...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+        await saveOrder(true);
+        Swal.fire({title:'Applied', text: 'Discount calculated successfully.', icon:'success', timer: 1000, showConfirmButton: false});
     }
 };
 
@@ -343,9 +338,8 @@ window.selectDiscount = async function(discId) {
     if(discId === 0) {
         state.discount_id = null; state.discount_note = ''; state.senior_details = []; state.discount_amount = 0; state.custom_discount = { is_active: false };
         Swal.close(); 
-        
-        // Auto-refresh clear
-        if(state.activeOrderId && state.activeOrderId !== 'new') { await saveOrder(true); } else { renderCart(); }
+        Swal.fire({title:'Clearing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+        await saveOrder(true); 
         return Swal.fire({title: 'Removed', text: 'Discount cleared', icon: 'success', timer: 1000, showConfirmButton: false});
     }
 
@@ -407,19 +401,14 @@ window.selectDiscount = async function(discId) {
         });
         if (details) {
             state.senior_details = details; state.discount_note = `SC/PWD (${details.length} Pax)`;
-            if(state.activeOrderId && state.activeOrderId !== 'new') { await saveOrder(true); } else { renderCart(); }
+            Swal.fire({title:'Calculating...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            await saveOrder(true);
         } else { state.discount_id = null; }
     } else {
         state.discount_note = d.name;
-        // ✨ MAGIC FIX: Force the popup to close and auto-save instantly!
-        Swal.close(); 
-        
-        if(state.activeOrderId && state.activeOrderId !== 'new') { 
-            await saveOrder(true); 
-        } else { 
-            renderCart(); 
-            Swal.fire({title: 'Applied', text: 'Discount added. Math will calculate when you Save/Charge.', icon: 'success', timer: 1500, showConfirmButton: false});
-        }
+        Swal.fire({title:'Calculating...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+        await saveOrder(true); 
+        Swal.fire({title: 'Applied', text: 'Discount added successfully.', icon: 'success', timer: 1000, showConfirmButton: false});
     }
 };
 
@@ -432,7 +421,12 @@ function syncOrderState(d) {
     state.discount_amount = globalDisc;
     
     if (d.order_info.discount_note && d.order_info.discount_note.startsWith('Custom:')) {
-        state.custom_discount = { is_active: true, note: d.order_info.discount_note.replace('Custom: ', '') };
+        // FIX #3: Only set this if it's empty! Do NOT overwrite existing rules!
+        if (!state.custom_discount || !state.custom_discount.val) {
+            state.custom_discount = { is_active: true, type: 'amount', val: globalDisc, target: 'all', note: d.order_info.discount_note.replace('Custom: ', '') };
+        }
+    } else {
+        state.custom_discount = { is_active: false };
     }
     
     state.discount_note = d.order_info.discount_note || '';
