@@ -26,7 +26,6 @@ try {
 
     $printer_errors = [];
 
-    // --- FETCH ITEMS ---
     $sql = "
         SELECT 
             oi.id as order_item_id, oi.quantity, oi.kitchen_printed,
@@ -45,16 +44,32 @@ try {
 
     if (empty($rows)) throw new Exception("No items found for this order.");
 
-    // --- FETCH BUSINESS PROFILE ---
     $biz_res = $mysqli->query("SELECT setting_key, setting_value FROM system_settings WHERE category = 'business'");
     $biz = [];
     while ($b_row = $biz_res->fetch_assoc()) $biz[$b_row['setting_key']] = $b_row['setting_value'];
 
-    // --- PREPARE ORDER META ---
     $o_stmt = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE o.id = ?");
     $o_stmt->bind_param("i", $order_id);
     $o_stmt->execute();
     $order_meta = $o_stmt->get_result()->fetch_assoc();
+
+    // FIX 2: Fetch specific discount name and percentage formatting
+    $discount_label = "DISCOUNT";
+    if (!empty($order_meta['discount_id'])) {
+        $did = (int)$order_meta['discount_id'];
+        $d_res = $mysqli->query("SELECT name, type, value FROM discounts WHERE id = $did");
+        if ($d = $d_res->fetch_assoc()) {
+            if ($d['type'] === 'percent') {
+                $discount_label = strtoupper($d['name']) . " (" . floatval($d['value']) . "%)";
+            } else {
+                $discount_label = strtoupper($d['name']) . " DISC";
+            }
+        }
+    } elseif (!empty($order_meta['discount_note']) && strpos($order_meta['discount_note'], 'Custom:') !== false) {
+        $cleaned_note = str_replace('Custom: ', '', $order_meta['discount_note']);
+        $ext = explode('|', $cleaned_note)[0];
+        $discount_label = "DISC (" . strtoupper(trim($ext)) . ")";
+    }
 
     $meta = [
         'Store'   => $biz['store_name'] ?? 'FOGS RESTAURANT',
@@ -64,14 +79,14 @@ try {
         'Table'   => $order_meta['table_number'] ?? '',
         'Staff'   => $_SESSION['username'] ?? 'Staff',
         'Date'    => date('M d, Y h:i A'),
-        'Ref'     => $order_meta['reference'], // This now passes the YYMMXXXX number
-        'Customer'=> $order_meta['customer_name'], // This passes the Takeout Name
+        'Ref'     => $order_meta['reference'],
+        'Customer'=> $order_meta['customer_name'],
         'OrderDiscount' => $order_meta['discount_total'],
-        'OrderDiscountNote' => $order_meta['discount_note']
+        'OrderDiscountNote' => $order_meta['discount_note'],
+        'DiscountLabel' => $discount_label // Passing the newly generated label
     ];
 
     if ($type === 'receipt') {
-        // Correctly group Split Bill payments
         $pay_res = $mysqli->query("SELECT GROUP_CONCAT(DISTINCT method SEPARATOR ', ') as methods, SUM(amount) as tendered, SUM(change_given) as chg FROM payments WHERE order_id = $order_id");
         if ($pay = $pay_res->fetch_assoc()) {
             $meta['Tendered'] = (float)$pay['tendered'];
@@ -80,7 +95,6 @@ try {
         }
     }
 
-    // --- EXECUTE ROUTING LOGIC ---
     if ($type === 'kitchen') {
         $kitchen_items = [];
         $bar_items = [];
@@ -133,7 +147,6 @@ try {
         $mysqli->query("UPDATE order_items SET kitchen_printed = quantity WHERE order_id = $order_id");
 
     } else {
-        // --- BILL OR RECEIPT LOGIC ---
         try {
             $conf = getPrinterConfig($mysqli, 'route_receipt');
             if (!$conf) throw new Exception("Receipt printer not assigned.");

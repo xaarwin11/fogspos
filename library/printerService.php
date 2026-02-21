@@ -44,18 +44,15 @@ class PrinterService
 
         $total = 0;
 
-        // 1. Initialize printer state safely!
         $this->printer->initialize();
         
         if (($options['beep'] ?? 0) == 1) {
             $this->connector->write("\x1b\x42\x02\x02");
         }
 
-        // --- GLOBAL HEADER ---
         $this->printer->setJustification(Printer::JUSTIFY_CENTER);
 
         if ($showPrice) {
-            // Attempt Logo (If fails, it will NOT break the centering anymore!)
             try {
                 if (file_exists(__DIR__ . "/../assets/img/print.png")) {
                     $logo = EscposImage::load(__DIR__ . "/../assets/img/print.png");
@@ -64,7 +61,6 @@ class PrinterService
                 }
             } catch (Exception $e) {}
 
-            // Store Profile
             $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
             $this->printer->text(($meta['Store'] ?? "FOGS RESTAURANT") . "\n");
             $this->printer->selectPrintMode(Printer::MODE_FONT_A);
@@ -74,19 +70,17 @@ class PrinterService
             $this->printer->feed(1);
         }
 
-        // TICKET TITLE (Prints for ALL tickets: Receipts, Kitchen, and Bar)
         $this->printer->setEmphasis(true);
         $this->printer->selectPrintMode(Printer::MODE_DOUBLE_HEIGHT);
         $this->printer->text(strtoupper($title) . "\n"); 
         $this->printer->setEmphasis(false);
         $this->printer->selectPrintMode(Printer::MODE_FONT_A);
 
-        // Reset to left-align for the main content
         $this->printer->setJustification(Printer::JUSTIFY_LEFT);
         $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
 
-        // --- ORDER META DETAILS ---
-        if (!empty($meta['Ref'])) {
+        // FIX 1: Only print the ORDER # if it is an official Receipt/Bill ($showPrice = true)
+        if ($showPrice && !empty($meta['Ref'])) {
             $this->printer->setEmphasis(true);
             $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
             $this->printer->text("ORDER #: " . $meta['Ref'] . "\n");
@@ -105,7 +99,6 @@ class PrinterService
             $this->printer->setEmphasis(false);
         }
 
-        // Prints the customer name if it exists!
         if (!empty($meta['Customer'])) {
             $this->printer->setEmphasis(true);
             $this->printer->text("NAME:  " . strtoupper($meta['Customer']) . "\n");
@@ -115,7 +108,6 @@ class PrinterService
         if (isset($meta['Date']))  $this->printer->text("TIME:  " . $meta['Date'] . "\n");
         $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
 
-        // --- ITEMS RENDERING ---
         foreach ($items as $item) {
             $qty   = (int)$item['quantity'];
             $name  = $item['name'];
@@ -124,7 +116,6 @@ class PrinterService
             $total += $rawLineTotal; 
             
             if ($showPrice) {
-                // Receipt Mode
                 $this->printer->text($this->columnize($qty . "x " . $name, number_format($rawLineTotal, 2)));
                 
                 if (!empty($item['modifiers'])) {
@@ -133,7 +124,6 @@ class PrinterService
                     }
                 }
             } else {
-                // Kitchen Mode
                 $this->printer->selectPrintMode(Printer::MODE_DOUBLE_HEIGHT);
                 $this->printer->text($qty . "x " . $name . "\n");
                 $this->printer->selectPrintMode(Printer::MODE_FONT_A);
@@ -146,14 +136,16 @@ class PrinterService
             }
         }
 
-        // --- RECEIPT TOTALS ---
         if ($showPrice) {
             $global_discount = (float)($meta['OrderDiscount'] ?? 0);
             $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
             
             if ($global_discount > 0) {
+                // FIX 2: Print "Subtotal" clearly before deducting the labeled discount
                 $this->printer->text($this->columnize("SUBTOTAL", number_format($total, 2)));
-                $this->printer->text($this->columnize("DISCOUNT", "-" . number_format($global_discount, 2)));
+                
+                $disc_label = !empty($meta['DiscountLabel']) ? substr($meta['DiscountLabel'], 0, 20) : "DISCOUNT";
+                $this->printer->text($this->columnize($disc_label, "-" . number_format($global_discount, 2)));
                 
                 if (!empty($meta['OrderDiscountNote'])) {
                     $this->printer->setJustification(Printer::JUSTIFY_LEFT);
@@ -179,7 +171,6 @@ class PrinterService
             $this->printer->setEmphasis(false);
             $this->printer->selectPrintMode(Printer::MODE_FONT_A); 
 
-            // Payment Block
             if (isset($meta['Tendered']) && isset($meta['Change'])) {
                 $this->printer->feed(1);
                 $this->printer->text($this->columnize("TENDERED", number_format($meta['Tendered'], 2)));

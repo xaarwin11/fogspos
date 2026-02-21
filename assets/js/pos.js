@@ -161,9 +161,27 @@ function renderCart() {
 }
 
 window.updateQty = function(idx, delta) {
-    state.cart[idx].qty += delta;
-    if (state.cart[idx].qty <= 0) state.cart.splice(idx, 1);
-    renderCart();
+    const newQty = state.cart[idx].qty + delta;
+    
+    // FIX 3: Prompt for deletion if quantity hits zero
+    if (newQty <= 0) {
+        Swal.fire({
+            title: 'Remove Item?', 
+            text: state.cart[idx].name, 
+            icon: 'warning',
+            showCancelButton: true, 
+            confirmButtonColor: '#d33', 
+            confirmButtonText: 'Yes, remove it'
+        }).then((res) => { 
+            if (res.isConfirmed) { 
+                state.cart.splice(idx, 1); 
+                renderCart(); 
+            } 
+        });
+    } else {
+        state.cart[idx].qty = newQty;
+        renderCart();
+    }
 };
 
 window.confirmRemoveItem = function(idx) {
