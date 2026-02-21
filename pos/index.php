@@ -112,14 +112,17 @@ if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
             document.getElementById('btnDineIn').classList.toggle('active', mode === 'dine_in');
             document.getElementById('btnTakeout').classList.toggle('active', mode === 'takeout');
             
+            // 🚨 FIX: Completely wipe all table and order memory when switching modes
+            state.activeTableId = null;
+            state.activeOrderId = null;
+            
             state.cart = []; state.discount_id = null; state.discount_note = ''; state.senior_details = [];
+            state.custom_discount = { is_active: false };
             
             if (mode === 'takeout') {
-                state.activeTableId = null;
                 document.getElementById('tableName').innerText = 'Select Takeout';
                 showTakeoutPopup();
             } else {
-                state.activeOrderId = null;
                 document.getElementById('tableName').innerText = 'Select Table';
             }
             renderCart();

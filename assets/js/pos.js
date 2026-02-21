@@ -431,6 +431,9 @@ window.selectDiscount = async function(discId) {
 };
 
 function syncOrderState(d) {
+    // 🚨 FIX: Always force the app's memory to match the exact database order ID!
+    state.activeOrderId = d.order_id || (d.order_info ? d.order_info.id : null);
+    
     state.cart = d.items;
     const totalItemDisc = d.items.reduce((sum, item) => sum + (parseFloat(item.discount_amount) || 0), 0);
     let globalDisc = (parseFloat(d.order_info.discount_total) || 0) - totalItemDisc;
@@ -439,7 +442,6 @@ function syncOrderState(d) {
     state.discount_amount = globalDisc;
     
     if (d.order_info.discount_note && d.order_info.discount_note.startsWith('Custom:')) {
-        // FIX #3: Only set this if it's empty! Do NOT overwrite existing rules!
         if (!state.custom_discount || !state.custom_discount.val) {
             state.custom_discount = { is_active: true, type: 'amount', val: globalDisc, target: 'all', note: d.order_info.discount_note.replace('Custom: ', '') };
         }
@@ -496,11 +498,15 @@ window.pickTable = async function(id, num, status) {
     document.getElementById('tableName').innerText = 'Table ' + num;
     state.customer_name = null;
     Swal.close();
+    
     if(status === 'occupied') {
         const r = await fetch(`../api/get_active_order.php?table_id=${id}`);
         const d = await r.json();
         if(d.success) { syncOrderState(d); renderCart(); }
     } else { 
+        // 🚨 FIX: Aggressively wipe the old Order ID memory for new tables!
+        state.activeOrderId = null; 
+        
         state.cart = []; state.discount_amount = 0; state.discount_note = ''; state.discount_id = null; state.amount_paid = 0;
         state.custom_discount = { is_active: false };
         renderCart();
