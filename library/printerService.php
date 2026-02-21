@@ -79,7 +79,6 @@ class PrinterService
         $this->printer->setJustification(Printer::JUSTIFY_LEFT);
         $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
 
-        // FIX 1: Only print the ORDER # if it is an official Receipt/Bill ($showPrice = true)
         if ($showPrice && !empty($meta['Ref'])) {
             $this->printer->setEmphasis(true);
             $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
@@ -116,17 +115,27 @@ class PrinterService
             $total += $rawLineTotal; 
             
             if ($showPrice) {
+                // Receipt Mode: Print Item
                 $this->printer->text($this->columnize($qty . "x " . $name, number_format($rawLineTotal, 2)));
                 
+                // Print Modifiers
                 if (!empty($item['modifiers'])) {
                     foreach ($item['modifiers'] as $mod) {
                         $this->printer->text("  + " . ($mod['name'] ?? $mod) . "\n");
                     }
                 }
+
+                // FIX 2: Print Item-Level Discounts right under the item!
+                if (!empty($item['discount_amount']) && (float)$item['discount_amount'] > 0) {
+                    $d_note = !empty($item['discount_note']) ? $item['discount_note'] : 'Discount';
+                    $this->printer->text("  * Less: " . $d_note . " (-" . number_format((float)$item['discount_amount'], 2) . ")\n");
+                }
             } else {
+                // Kitchen Mode: Print Item & Modifiers larger
                 $this->printer->selectPrintMode(Printer::MODE_DOUBLE_HEIGHT);
                 $this->printer->text($qty . "x " . $name . "\n");
                 $this->printer->selectPrintMode(Printer::MODE_FONT_A);
+                
                 if (!empty($item['modifiers'])) {
                     foreach ($item['modifiers'] as $mod) {
                         $this->printer->text("  + " . ($mod['name'] ?? $mod) . "\n");
@@ -141,7 +150,6 @@ class PrinterService
             $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
             
             if ($global_discount > 0) {
-                // FIX 2: Print "Subtotal" clearly before deducting the labeled discount
                 $this->printer->text($this->columnize("SUBTOTAL", number_format($total, 2)));
                 
                 $disc_label = !empty($meta['DiscountLabel']) ? substr($meta['DiscountLabel'], 0, 20) : "DISCOUNT";

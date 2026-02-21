@@ -26,6 +26,7 @@ try {
 
     $printer_errors = [];
 
+    // --- FETCH MAIN ITEMS ---
     $sql = "
         SELECT 
             oi.id as order_item_id, oi.quantity, oi.kitchen_printed,
@@ -44,6 +45,25 @@ try {
 
     if (empty($rows)) throw new Exception("No items found for this order.");
 
+    // FIX 1: Fetch ALL modifiers for this order efficiently in one go!
+    $mod_sql = "SELECT order_item_id, name FROM order_item_modifiers WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)";
+    $mod_stmt = $mysqli->prepare($mod_sql);
+    $mod_stmt->bind_param("i", $order_id);
+    $mod_stmt->execute();
+    $all_mods = $mod_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    $mods_by_item = [];
+    foreach ($all_mods as $m) {
+        $mods_by_item[$m['order_item_id']][] = ['name' => $m['name']];
+    }
+
+    // Attach modifiers directly to the items
+    foreach ($rows as &$r) {
+        $r['modifiers'] = $mods_by_item[$r['order_item_id']] ?? [];
+    }
+    unset($r);
+
+    // --- FETCH BUSINESS PROFILE & META ---
     $biz_res = $mysqli->query("SELECT setting_key, setting_value FROM system_settings WHERE category = 'business'");
     $biz = [];
     while ($b_row = $biz_res->fetch_assoc()) $biz[$b_row['setting_key']] = $b_row['setting_value'];
@@ -53,7 +73,6 @@ try {
     $o_stmt->execute();
     $order_meta = $o_stmt->get_result()->fetch_assoc();
 
-    // FIX 2: Fetch specific discount name and percentage formatting
     $discount_label = "DISCOUNT";
     if (!empty($order_meta['discount_id'])) {
         $did = (int)$order_meta['discount_id'];
@@ -83,7 +102,7 @@ try {
         'Customer'=> $order_meta['customer_name'],
         'OrderDiscount' => $order_meta['discount_total'],
         'OrderDiscountNote' => $order_meta['discount_note'],
-        'DiscountLabel' => $discount_label // Passing the newly generated label
+        'DiscountLabel' => $discount_label
     ];
 
     if ($type === 'receipt') {
@@ -103,15 +122,10 @@ try {
             $qty_to_print = (int)$r['quantity'] - (int)$r['kitchen_printed'];
             if ($qty_to_print <= 0) continue;
 
-            $m_stmt = $mysqli->prepare("SELECT name FROM order_item_modifiers WHERE order_item_id = ?");
-            $m_stmt->bind_param("i", $r['order_item_id']);
-            $m_stmt->execute();
-            $mods = $m_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-
             $formatted = [
                 'quantity'  => $qty_to_print,
                 'name'      => $r['product_name'] . ($r['variation_name'] ? " ({$r['variation_name']})" : ""),
-                'modifiers' => $mods
+                'modifiers' => $r['modifiers']
             ];
 
             if ($r['cat_type'] === 'drink') { $bar_items[] = $formatted; } 
@@ -158,7 +172,10 @@ try {
                 $bill_items[] = [
                     'quantity' => (int)$r['quantity'],
                     'name'     => $r['product_name'] . ($r['variation_name'] ? " ({$r['variation_name']})" : ""),
-                    'price'    => (float)$r['base_price'] + (float)$r['modifier_total']
+                    'price'    => (float)$r['base_price'] + (float)$r['modifier_total'],
+                    'modifiers'=> $r['modifiers'],
+                    'discount_amount' => (float)$r['discount_amount'],
+                    'discount_note' => $r['discount_note']
                 ];
             }
 
