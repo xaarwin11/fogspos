@@ -45,7 +45,15 @@ function updateTimeClockUI(isClockedIn) {
 function toggleTimeClock() {
     const btn = document.getElementById('navTimeClockBtn');
     btn.disabled = true; 
-    fetch('../api/time_clock.php', { method: 'POST' }).then(r => r.json()).then(d => {
+    
+    fetch('../api/time_clock.php', { 
+        method: 'POST',
+        // 🚨 ADDED THE SECURITY HEADERS HERE
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+        }
+    }).then(r => r.json()).then(d => {
         btn.disabled = false;
         if(d.success) {
             updateTimeClockUI(d.action === 'clocked_in');
