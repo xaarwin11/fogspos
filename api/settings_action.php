@@ -212,6 +212,26 @@ try {
             foreach ($settings as $key => $val) { $stmt->bind_param('ss', $val, $key); $stmt->execute(); }
             echo json_encode(['success' => true]); exit;
         }
+        
+        if ($action === 'get_payroll') {
+            // Append times to make sure it covers the full days
+            $start = $input['start_date'] . ' 00:00:00';
+            $end = $input['end_date'] . ' 23:59:59';
+            
+            $sql = "SELECT t.*, u.username, u.first_name, u.last_name, u.hourly_rate 
+                    FROM time_tracking t 
+                    JOIN users u ON t.user_id = u.id 
+                    WHERE t.clock_in >= ? AND t.clock_in <= ? AND t.clock_out IS NOT NULL
+                    ORDER BY u.first_name ASC, t.clock_in ASC";
+                    
+            $stmt = $mysqli->prepare($sql);
+            $stmt->bind_param('ss', $start, $end);
+            $stmt->execute();
+            $records = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            
+            echo json_encode(['success' => true, 'records' => $records]);
+            exit;
+        }
     }
     echo json_encode(['success' => false, 'error' => 'Invalid action']);
 } catch (Exception $e) { 

@@ -46,6 +46,18 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             .tab-btn.active { border-bottom-color: var(--brand); }
             .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         }
+        /* --- A4 PAYROLL PRINT STYLES --- */
+        @media print {
+            body * { visibility: hidden; }
+            .settings-layout { margin: 0; padding: 0; }
+            #print-payroll-area, #print-payroll-area * { visibility: visible; }
+            #print-payroll-area { position: absolute; left: 0; top: 0; width: 100%; width: 210mm; padding: 20mm; background: white; }
+            .no-print { display: none !important; }
+            .print-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            .print-table th, .print-table td { border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px; }
+            .print-table th { background: #eee !important; -webkit-print-color-adjust: exact; }
+            .sign-line { border-bottom: 1px solid #000; width: 120px; display: inline-block; }
+        }
     </style>
 </head>
 <body>
@@ -128,14 +140,83 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             </div>
 
             <div id="tab-timesheets" class="tab-pane">
-                <div class="header-row"><h2>Employee Timesheets</h2></div>
-                <p style="color:gray; font-size:0.9rem; margin-top:-10px;">Showing the last 100 clock-in records.</p>
-                <div class="table-responsive">
-                    <table class="settings-table">
-                        <thead><tr><th>Staff Member</th><th>Clock In</th><th>Clock Out</th><th>Duration</th></tr></thead>
-                        <tbody id="ts-tbody"></tbody>
-                    </table>
+                
+                <div class="no-print" style="margin-bottom: 30px; padding-bottom: 30px; border-bottom: 2px dashed #eee;">
+                    <div class="header-row" style="margin-bottom:15px;">
+                        <h2>💸 Payroll Generator</h2>
+                    </div>
+                    <div style="background:#f9fafb; padding:15px; border-radius:8px; border:1px solid #eee; display:flex; gap:15px; align-items:flex-end;">
+                        <div style="flex:1;">
+                            <label style="font-size:0.85rem; font-weight:bold;">Start Date</label>
+                            <input type="date" id="pr-start" class="swal2-input" style="margin:0; width:100%; height:40px; font-size:1rem;">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:0.85rem; font-weight:bold;">End Date</label>
+                            <input type="date" id="pr-end" class="swal2-input" style="margin:0; width:100%; height:40px; font-size:1rem;">
+                        </div>
+                        <button class="btn success" style="height:40px; padding:0 20px;" onclick="generatePayroll()">Calculate</button>
+                        <button class="btn secondary" style="height:40px; padding:0 20px;" onclick="window.print()">🖨️ Print A4 Sheet</button>
+                    </div>
                 </div>
+
+                <div class="no-print">
+                    <div class="header-row" style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+                        <h2>⏰ Recent Shifts</h2>
+                        <div style="font-size:0.9rem; color:gray;">Showing last 200 shifts</div>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="settings-table">
+                            <thead>
+                                <tr>
+                                    <th>Staff</th>
+                                    <th>Clock In</th>
+                                    <th>Clock Out</th>
+                                    <th>Hours</th>
+                                    <th>Est. Pay</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ts-tbody"></tbody> </table>
+                    </div>
+                </div>
+
+                <div id="print-payroll-area" style="display:none;">
+                    <div style="text-align:center; margin-bottom:20px;">
+                        <h2 style="margin:0;">FogsTasa Cafe - Payroll Report</h2>
+                        <p style="margin:5px 0; color:gray;" id="pr-date-label"></p>
+                    </div>
+                    
+                    <table class="print-table" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th>Staff Name</th>
+                                <th style="text-align:center;">Shifts</th>
+                                <th style="text-align:center;">Reg Hrs (Max 9)</th>
+                                <th style="text-align:center; color:#d32f2f;">OT Hrs</th>
+                                <th style="text-align:right;">Gross Pay</th>
+                                <th>Adv / Ded</th>
+                                <th style="text-align:right;">Net Pay</th>
+                                <th>Signature</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pr-tbody">
+                            </tbody>
+                    </table>
+                    
+                    <div style="margin-top: 50px; display: flex; justify-content: space-between;">
+                        <div>
+                            <p>Prepared by:</p><br>
+                            <span class="sign-line" style="width: 200px;"></span><br>
+                            <small>Admin / Manager</small>
+                        </div>
+                        <div>
+                            <p>Approved by:</p><br>
+                            <span class="sign-line" style="width: 200px;"></span><br>
+                            <small>Owner</small>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <div id="tab-audit" class="tab-pane">
@@ -414,6 +495,77 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             const res = await fetch('../api/settings_action.php', { method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()}, body: JSON.stringify({ action: 'save_settings_batch', settings: payload }) });
             const data = await res.json();
             if (data.success) { Swal.fire({icon: 'success', title: 'Updated Successfully', timer: 1000, showConfirmButton: false}); loadData(); }
+        }
+        async function generatePayroll() {
+            const start = document.getElementById('pr-start').value;
+            const end = document.getElementById('pr-end').value;
+
+            if (!start || !end) return Swal.fire('Error', 'Please select both start and end dates.', 'warning');
+
+            document.getElementById('pr-date-label').innerText = `Period: ${start} to ${end}`;
+            
+            const res = await fetch('../api/settings_action.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+                body: JSON.stringify({ action: 'get_payroll', start_date: start, end_date: end })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                let staffMap = {};
+
+                // 1. Group shifts and split Regular vs Overtime
+                data.records.forEach(r => {
+                    const uid = r.user_id;
+                    const name = (r.first_name || r.username) + ' ' + (r.last_name || '');
+                    const rate = parseFloat(r.hourly_rate) || 0;
+                    const shiftHrs = parseFloat(r.hours_worked) || 0;
+                    
+                    if (!staffMap[uid]) {
+                        staffMap[uid] = { name: name, rate: rate, shifts: 0, reg: 0, ot: 0 };
+                    }
+
+                    staffMap[uid].shifts += 1;
+                    
+                    // SMART CAPPING: Max 9 hours regular, the rest is OT
+                    if (shiftHrs > 9) {
+                        staffMap[uid].reg += 9;
+                        staffMap[uid].ot += (shiftHrs - 9);
+                    } else {
+                        staffMap[uid].reg += shiftHrs;
+                    }
+                });
+
+                // 2. Build the UI
+                let html = '';
+                let totalPayout = 0;
+
+                Object.values(staffMap).forEach(s => {
+                    // Assuming you pay the same rate for OT. You can do (s.ot * s.rate * 1.25) if you pay extra for OT!
+                    const regPay = s.reg * s.rate;
+                    const otPay = s.ot * s.rate; 
+                    const gross = regPay + otPay;
+                    totalPayout += gross;
+
+                    html += `
+                        <tr>
+                            <td style="font-weight:bold;">${s.name} <br><small style="color:gray;">₱${s.rate.toFixed(2)}/hr</small></td>
+                            <td style="text-align:center;">${s.shifts}</td>
+                            <td style="text-align:center;">${s.reg.toFixed(2)}h</td>
+                            <td style="text-align:center; color:#d32f2f; font-weight:bold;">${s.ot > 0 ? s.ot.toFixed(2) + 'h' : '-'}</td>
+                            <td style="text-align:right; font-weight:bold;">₱${gross.toFixed(2)}</td>
+                            <td></td> <td style="text-align:right;"></td> <td style="text-align:center;"><span class="sign-line"></span></td>
+                        </tr>
+                    `;
+                });
+
+                if (Object.keys(staffMap).length === 0) {
+                    html = `<tr><td colspan="8" style="text-align:center; padding:20px;">No shifts found for this date range.</td></tr>`;
+                }
+
+                document.getElementById('pr-tbody').innerHTML = html;
+                document.getElementById('print-payroll-area').style.display = 'block'; // Make it visible to the screen and printer
+            }
         }
     </script>
 </body>
