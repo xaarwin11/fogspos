@@ -166,7 +166,7 @@ try {
                 if (!empty($pin)) {
                     $hash = password_hash($pin, PASSWORD_DEFAULT);
                     $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, passcode=? WHERE id=?");
-                    $stmt->bind_param('sssiis', $username, $first_name, $last_name, $role_id, $hash, $id);
+                    $stmt->bind_param('sssisi', $username, $first_name, $last_name, $role_id, $hash, $id);
                 } else {
                     $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=? WHERE id=?");
                     $stmt->bind_param('sssii', $username, $first_name, $last_name, $role_id, $id);
