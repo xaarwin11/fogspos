@@ -45,7 +45,7 @@ function updateTimeClockUI(isClockedIn) {
 function toggleTimeClock() {
     const btn = document.getElementById('navTimeClockBtn');
     btn.disabled = true; 
-    fetch('../api/timeclock.php', { method: 'POST' }).then(r => r.json()).then(d => {
+    fetch('../api/time_clock.php', { method: 'POST' }).then(r => r.json()).then(d => {
         btn.disabled = false;
         if(d.success) {
             updateTimeClockUI(d.action === 'clocked_in');
