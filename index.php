@@ -2,8 +2,18 @@
 require_once 'db.php';
 session_start();
 
-if (!empty($_SESSION['user_id'])) {
-    header("Location: pos/index.php");
+$remote_ip = $_SERVER['REMOTE_ADDR'];
+$is_local = (strpos($remote_ip, '192.168.') === 0 || $remote_ip === '127.0.0.1' || $remote_ip === '::1');
+
+if (!$is_local) {
+    // This is a customer from the internet! Send them to the public menu.
+    header("Location: public/");
+    exit;
+}
+
+// 2. If they are already logged in, send them straight to the POS
+if (isset($_SESSION['user_id'])) {
+    header("Location: pos/");
     exit;
 }
 ?>
@@ -89,7 +99,7 @@ if (!empty($_SESSION['user_id'])) {
             .then(r => r.json())
             .then(data => {
                 if(data.success) {
-                    window.location.href = 'pos/index.php';
+                    window.location.href = 'pos/';
                 } else {
                     btn.innerText = originalText;
                     

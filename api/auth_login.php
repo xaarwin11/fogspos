@@ -3,52 +3,64 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
+// 1. SILENT ERRORS: Log to your 'error.log' instead of the screen
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
-// Safely grab the PIN from either JSON or FormData
 $input = json_decode(file_get_contents('php://input'), true);
 $pin = $input['passcode'] ?? $_POST['passcode'] ?? '';
 $pin = trim((string)$pin);
 
 if (empty($pin)) {
-    echo json_encode(['success' => false, 'error' => 'No passcode reached the server. Your phone might be blocking the request.']);
+    echo json_encode(['success' => false, 'error' => 'Authentication failed.']);
     exit;
 }
 
 try {
     $mysqli = get_db_conn();
+    
+    // Fetch only what we need
     $sql = "SELECT id, username, passcode, role_id FROM users WHERE is_active = 1";
     $res = $mysqli->query($sql);
     
-    if (!$res) throw new Exception("Failed to search users table: " . $mysqli->error);
+    if (!$res) throw new Exception("Login query failed.");
     
     $found = false;
-    
+    $auth_user = null;
+
     while($user = $res->fetch_assoc()) {
         if(password_verify($pin, $user['passcode'])) {
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['username'] = $user['username'];
-            
-            $r_sql = "SELECT role_name FROM roles WHERE id = " . $user['role_id'];
-            $_SESSION['role'] = $mysqli->query($r_sql)->fetch_assoc()['role_name'] ?? 'staff';
-            
+            $auth_user = $user;
             $found = true;
             break;
         }
     }
     
     if ($found) {
-        // FIX: Pass the CSRF token back so the POS can rescue a dead session!
-        if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
+        session_regenerate_id(true);
+        $_SESSION['user_id'] = $auth_user['id'];
+        $_SESSION['username'] = $auth_user['username'];
+        
+        // 2. SECURE ROLE FETCH: Using a prepared statement
+        $r_stmt = $mysqli->prepare("SELECT role_name FROM roles WHERE id = ?");
+        $r_stmt->bind_param("i", $auth_user['role_id']);
+        $r_stmt->execute();
+        $role_res = $r_stmt->get_result()->fetch_assoc();
+        $_SESSION['role'] = $role_res['role_name'] ?? 'staff';
+        
+        if (empty($_SESSION['csrf_token'])) { 
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); 
+        }
+        
         echo json_encode(['success' => true, 'csrf_token' => $_SESSION['csrf_token']]);
     } else {
-        // DIAGNOSTIC OUTPUT: Sends back exactly what the server saw!
-        echo json_encode(['success' => false, 'error' => "Server checked PIN: '$pin'. It did not match the database hashes."]);
+        // 3. SECURE FAILURE: No more PIN diagnostic output
+        echo json_encode(['success' => false, 'error' => "Invalid Passcode."]);
     }
 
 } catch (Exception $e) {
-    echo json_encode(['success' => false, 'error' => 'DATABASE CRASH: ' . $e->getMessage()]);
+    // 4. LOG THE ERROR: Keeps your server safe
+    error_log("LOGIN CRASH: " . $e->getMessage());
+    echo json_encode(['success' => false, 'error' => 'System error. Please try again.']);
 }
 ?>

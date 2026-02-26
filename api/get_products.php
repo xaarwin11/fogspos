@@ -3,7 +3,12 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
+// Allow either logged-in staff OR the public menu (which sets a public_csrf session)
+// Allow either logged-in staff OR the public menu
+if (empty($_SESSION['user_id']) && empty($_SESSION['public_csrf'])) { 
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']); 
+    exit; 
+}
 
 try {
     $mysqli = get_db_conn();

@@ -19,7 +19,7 @@ $user_role = $_SESSION['role'] ?? 'staff';
             <a href="../admin/settings.php" style="color:white; text-decoration:none; font-weight:500;">⚙️ Settings</a>
         <?php endif; ?>
         
-        <a href="../pos/index.php" style="color:white; text-decoration:none; font-weight:500;">🖥️ POS</a>
+        <a href="../pos/" style="color:white; text-decoration:none; font-weight:500;">🖥️ POS</a>
         <a href="#" onclick="manageRegister()" style="color:white; text-decoration:none; padding:8px 12px; border-radius:6px; background:#4e2f1d;">💰 Register</a>
         <button id="navTimeClockBtn" onclick="toggleTimeClock()" style="background:var(--text-muted); border:none; padding:8px 15px; border-radius:6px; color:white; font-weight:bold; cursor:pointer; transition:0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
             ⏳ Checking...
