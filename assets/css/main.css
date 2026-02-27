@@ -195,10 +195,9 @@ nav {
     overflow-x: auto;
     overflow-y: hidden; /* Fixes vertical cutting */
     white-space: nowrap;
-    padding: 10px 5px; 
-    gap: 12px;
+    padding: 10px 5px;
     align-items: center; 
-    min-height: 70px; 
+    min-height: 20px; 
     -webkit-overflow-scrolling: touch;
     flex: 0 0 auto;
 }
@@ -209,7 +208,7 @@ nav {
 
 .category-tab {
     padding: 16px 28px;
-    font-size: 1.1rem;
+    font-size: 0.85rem;
     background: white; border: 2px solid var(--border);
     border-radius: 20px; color: var(--text-muted);
     font-weight: 600; cursor: pointer; white-space: nowrap;
@@ -401,4 +400,78 @@ nav {
     width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+}
+/* ============================================================
+   MOBILE PHONE FIXES (PORTRAIT MODE)
+   ============================================================ */
+@media (max-width: 768px) {
+    
+    /* 1. Restack the Login Screen for Phones */
+    body.login-page {
+        overflow-y: auto; /* Allow scrolling if the phone screen is very short */
+        align-items: center; /* Push to the top instead of centering perfectly */
+        padding: 20px 10px;
+    }
+
+    .landscape-card {
+        flex-direction: column !important; /* Forces Logo on top, PIN pad on bottom */
+        width: 100% !important;
+        max-width: 400px !important;
+        max-height: none !important; /* Remove height limits so it doesn't clip */
+        padding: 25px 20px !important;
+        gap: 15px !important;
+    }
+
+    /* 2. Shrink Login Elements for Thumbs */
+    .login-left .logo-img {
+        width: 80px !important;
+        height: 80px !important;
+        margin-bottom: 5px !important;
+    }
+
+    .login-left h2 { margin-top: 10px !important; font-size: 1.4rem !important; }
+
+    .login-left .pin-display {
+        font-size: 2rem !important;
+        letter-spacing: 10px !important;
+        height: 50px !important;
+        margin-bottom: 10px !important;
+    }
+
+    .pin-grid {
+        gap: 10px !important;
+    }
+
+    .pin-btn {
+        width: 65px !important;
+        height: 65px !important;
+        font-size: 1.5rem !important;
+    }
+
+    .pin-btn.enter {
+        height: 55px !important;
+        width: 200px !important;
+        font-size: 1.1rem !important;
+    }
+    .pin-btn.time {
+        height: 55px !important;
+        width: 200px !important;
+        font-size: 1.1rem !important;
+    }
+    
+    .pin-btn[onclick="clockIn()"] { 
+        height: 50px !important; 
+        font-size: 0.9rem !important; 
+    }
+
+    /* 3. Fix the Cart Drawer Action Buttons on Mobile */
+    .action-grid {
+        grid-template-columns: repeat(2, 1fr) !important; /* 2 columns instead of 3 on narrow phones */
+        padding: 0 15px 15px 15px !important;
+        gap: 8px !important;
+    }
+    
+    .cart-actions-drawer .btn.success {
+        grid-column: span 2 !important; /* Make Charge button span the whole width */
+    }
 }

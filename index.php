@@ -58,7 +58,7 @@ if (isset($_SESSION['user_id'])) {
             <button class="pin-btn" onclick="backspace()">⌫</button>
             
             <button class="pin-btn enter" onclick="login()">LOGIN</button>
-            <button class="pin-btn" style="grid-column: span 3; background: #8D6E63; color: white; border: none; width: 100%; height: 60px; border-radius: 12px; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; margin-top: 5px;" onclick="clockIn()">TIME CLOCK</button>
+            <button class="pin-btn time" style="grid-column: span 3; background: #8D6E63; color: white; border: none; width: 200px; height: 60px; border-radius: 12px; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; margin-top: 5px;" onclick="clockIn()">TIME CLOCK</button>
         </div>
     </div>
 
