@@ -751,3 +751,18 @@ window.executeTransfer = async function(newTableId, newTableNum) {
         Swal.fire('Error', 'Failed to transfer table.', 'error');
     }
 };
+function toggleCartDrawer() {
+            const panel = document.getElementById('cartBottomPanel');
+            const btn = document.getElementById('drawerBtn');
+            panel.classList.toggle('open');
+            
+            if (panel.classList.contains('open')) {
+                btn.style.background = 'var(--brand)';
+                btn.style.color = 'white';
+                btn.innerHTML = '▼'; // Changes to a close arrow
+            } else {
+                btn.style.background = 'white';
+                btn.style.color = 'var(--text-main)';
+                btn.innerHTML = '⚙️'; // Changes back to the gear
+            }
+        }

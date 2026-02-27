@@ -357,3 +357,31 @@ nav {
     font-size: 1.2rem !important;
     padding: 15px !important;
 }
+/* ============================================================
+   TABLET SLIDE-UP CART ACTIONS PANEL
+   ============================================================ */
+.cart-bottom-panel {
+    background: var(--bg-dark);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+}
+
+.cart-actions-drawer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cart-bottom-panel.open .cart-actions-drawer {
+    max-height: 400px; /* High enough to fit the buttons smoothly */
+}
+
+.action-grid {
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 10px; 
+    padding: 0 20px 20px 20px;
+}

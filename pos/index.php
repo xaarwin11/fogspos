@@ -72,27 +72,35 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
                 <div style="text-align:center; padding:40px; color:#ccc;">Cart is empty</div>
             </div>
 
-            <div style="padding:20px; background:var(--bg-dark); border-top:1px solid var(--border);">
-                <div id="summaryArea" style="display:none;">
-                    <div class="math-row" style="display:flex; justify-content:space-between; font-size:0.9rem; color:var(--text-muted);">
-                        <span>Subtotal</span>
-                        <span id="txtSubtotal">₱0.00</span>
+            <div class="cart-bottom-panel" id="cartBottomPanel">
+                
+                <div style="padding: 15px 20px;">
+                    <div id="summaryArea" style="display:none;">
+                        <div class="math-row" style="display:flex; justify-content:space-between; font-size:0.9rem; color:var(--text-muted);">
+                            <span>Subtotal</span>
+                            <span id="txtSubtotal">₱0.00</span>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; align-items: center; margin-top:5px;">
+                        <span style="font-size:1.5rem; font-weight:800; color:var(--text-main);">Total</span>
+                        <span id="txtGrandTotal" style="font-size:1.5rem; font-weight:800; color:var(--brand);">₱0.00</span>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 60px; gap:10px; margin-top:12px;">
+                        <button class="btn success" style="padding:15px; font-size:1.2rem; font-weight:800;" onclick="checkout()">CHARGE</button>
+                        <button class="btn secondary" style="font-size:1.3rem; display:flex; justify-content:center; align-items:center;" onclick="toggleCartDrawer()" id="drawerBtn">⚙️</button>
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:space-between; font-size:1.5rem; font-weight:800; margin-top:10px; color:var(--text-main);">
-                    <span>Total</span>
-                    <span id="txtGrandTotal" style="color:var(--brand);">₱0.00</span>
-                </div>
-
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:15px;">
-                    <button class="btn secondary" onclick="printOrder('kitchen', event)">🖨️ Send Items</button>
-                    <button class="btn secondary" onclick="printOrder('bill', event)">📄 Print Bill</button>
-                    
-                    <button class="btn secondary" onclick="applyDiscountPopup()">🏷️ Disc</button>
-                    <button class="btn secondary" onclick="clearCart()">🗑️ Clear</button>
-                    <button class="btn" onclick="saveOrder()" style="grid-column: span 2;">Save Order</button>
-                    <button class="btn success" style="grid-column: span 2; padding:18px; font-size:1.1rem;" onclick="checkout()">CHARGE</button>
+                <div class="cart-actions-drawer">
+                    <div class="action-grid">
+                        <button class="btn secondary" onclick="printOrder('kitchen', event)">🖨️ Send Items</button>
+                        <button class="btn secondary" onclick="printOrder('bill', event)">📄 Print Bill</button>
+                        <button class="btn secondary" onclick="applyDiscountPopup()">🏷️ Disc</button>
+                        <button class="btn secondary" onclick="clearCart()">🗑️ Clear</button>
+                        <button class="btn" onclick="saveOrder()" style="grid-column: span 2;">💾 Save Order</button>
+                    </div>
                 </div>
             </div>
         </div>
