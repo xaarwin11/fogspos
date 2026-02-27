@@ -11,23 +11,23 @@
     --tan:          #C58F63;   /* Warm Tan highlight */
     
     /* Backgrounds */
-    --bg-color:     #F7F4F0;   /* Your Cream */
-    --bg-dark:      #F2E7D5;   /* Darker Cream for contrast */
-    --surface:      #ffffff;   /* Pure White (Keeps it clean!) */
+    --bg-color:     #F7F4F0;   /* Cream */
+    --bg-dark:      #F2E7D5;   /* Darker Cream */
+    --surface:      #ffffff;   /* Pure White */
     
     /* Text */
-    --text-main:    #3e2b22;   /* Dark Brown-Black (Softer than pure black) */
-    --text-muted:   #8D6E63;   /* Use your brand light for muted text */
+    --text-main:    #3e2b22;   /* Dark Brown-Black */
+    --text-muted:   #8D6E63;   /* Muted text */
     
     /* Functional */
-    --success:      #2e7d32;   /* Green */
-    --danger:       #c62828;   /* Red */
-    --blue:         #1976d2;   /* Blue */
-    --border:       #E6DCCE;   /* A custom light brown border color */
+    --success:      #2e7d32;   
+    --danger:       #c62828;   
+    --blue:         #1976d2;   
+    --border:       #E6DCCE;   /* Custom light brown border */
     
     /* Polish */
     --radius:       12px;
-    --shadow:       0 4px 12px rgba(107, 66, 38, 0.08); /* Brown-tinted shadow */
+    --shadow:       0 4px 12px rgba(107, 66, 38, 0.08); 
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -41,69 +41,110 @@ body {
 }
 
 /* =========================================
-   LOGIN SCREEN
+   LOGIN SCREEN (LANDSCAPE OPTIMIZED)
    ========================================= */
 body.login-page {
+    background-color: var(--brand-dark); 
+    overflow: hidden; 
     display: flex;
     align-items: center;
     justify-content: center;
     height: 100vh;
+    margin: 0;
 }
 
-.login-card {
-    background: var(--surface);
-    width: 100%;
-    max-width: 380px;
-    padding: 40px 30px;
+.landscape-card {
+    width: 90vw; 
+    max-width: 700px; 
+    max-height: 90vh; 
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    padding: 30px 40px;
     border-radius: 20px;
-    box-shadow: var(--shadow);
-    text-align: center;
-    border: 1px solid var(--border);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+    background: var(--surface);
+    box-sizing: border-box;
 }
 
-.logo-img {
-    width: 90px;
-    height: 90px;
+.login-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.login-left .logo-img {
+    width: 110px;
+    height: 110px;
+    border: 4px solid var(--brand);
     border-radius: 50%;
     object-fit: cover;
-    margin-bottom: 20px;
-    border: 3px solid var(--brand);
+    margin-bottom: 15px;
 }
 
-.pin-display {
+.login-left .pin-display {
     width: 100%;
     border: none;
     background: var(--bg-color);
     border-radius: 10px;
-    font-size: 2.5rem;
-    letter-spacing: 15px;
-    text-align: center;
     color: var(--brand);
-    margin: 10px 0 20px 0;
     font-weight: 700;
     outline: none;
     caret-color: transparent;
+    text-align: center;
+    font-size: 2.5rem;
+    letter-spacing: 15px;
+    margin-bottom: 0;
+    height: 60px;
     padding: 10px;
 }
 
-.pin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 10px; }
+.pin-grid {
+    flex: 1.2;
+    display: grid; 
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 12px; 
+}
 
 .pin-btn {
-    background: var(--surface); border: 1px solid var(--border); color: var(--brand-dark);
-    font-size: 1.5rem; font-weight: 700; border-radius: 50%;
-    width: 70px; height: 70px; margin: 0 auto; cursor: pointer;
-    transition: all 0.1s ease; display: flex; align-items: center; justify-content: center;
+    background: var(--surface); 
+    border: 1px solid var(--border); 
+    color: var(--brand-dark);
+    font-weight: 700; 
+    border-radius: 50%;
+    cursor: pointer; 
+    transition: all 0.1s ease; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
     box-shadow: 0 2px 0 rgba(107, 66, 38, 0.1);
     touch-action: manipulation;
+    width: 75px;
+    height: 75px;
+    font-size: 2rem;
+    margin: 0 auto;
 }
 
 .pin-btn:active { background: var(--brand); color: white; transform: scale(0.95); border-color: var(--brand); }
-.pin-btn.clear { color: var(--danger); background: #fff5f5; border-color: #ffcdd2; font-size: 1rem; }
+.pin-btn.clear { color: var(--danger); background: #fff5f5; border-color: #ffcdd2; font-size: 1.5rem; }
+
 .pin-btn.enter { 
-    grid-column: span 3; width: 100%; height: 60px; border-radius: 12px; background: var(--brand); 
-    color: white; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; margin-top: 10px; border: none;
+    grid-column: span 3; 
+    border-radius: 12px; 
+    background: var(--brand); 
+    color: white; 
+    letter-spacing: 1px; 
+    text-transform: uppercase; 
+    border: none;
+    height: 65px; 
+    font-size: 1.3rem; 
+    width: 100%;
 }
 .pin-btn.enter:active { background: var(--brand-dark); }
+
 
 /* =========================================
    POS / DASHBOARD STYLES
@@ -133,10 +174,13 @@ nav {
 .btn.danger { background: var(--danger); }
 .btn.success { background: var(--success); }
 
-/* MAIN LAYOUT */
+/* MAIN LAYOUT (Tablet Optimized values integrated) */
 .pos-container {
-    display: grid; grid-template-columns: 1fr 380px; gap: 20px;
-    height: calc(100vh - 70px); padding: 20px; overflow: hidden;
+    display: grid; grid-template-columns: 1fr 380px; 
+    padding: 10px; 
+    gap: 15px;
+    height: calc(100vh - 65px);
+    overflow: hidden;
 }
 
 .card, .product-card {
@@ -144,55 +188,167 @@ nav {
     box-shadow: var(--shadow); border: 1px solid var(--border);
 }
 
-.products-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px;
-    padding: 10px 5px; overflow-y: auto; align-content: start;
+/* FIX: Category Tabs & Container */
+#catContainer, .category-scroll {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden; /* Fixes vertical cutting */
+    white-space: nowrap;
+    padding: 10px 5px; 
+    gap: 12px;
+    align-items: center; 
+    min-height: 70px; 
+    -webkit-overflow-scrolling: touch;
+    flex: 0 0 auto;
 }
 
-.product-card {
-    padding: 15px 10px; text-align: center; cursor: pointer; transition: 0.2s;
-    display: flex; flex-direction: column; justify-content: center; min-height: 110px;
+#catContainer::-webkit-scrollbar, .category-scroll::-webkit-scrollbar {
+    display: none;
 }
-.product-card:hover { transform: translateY(-3px); border-color: var(--tan); background: #fffbf7; }
-.product-card:active { transform: scale(0.96); }
 
-/* FIX: Category Tabs */
 .category-tab {
-    padding: 10px 18px;
-    background: white; border: 1px solid var(--border);
+    padding: 16px 28px;
+    font-size: 1.1rem;
+    background: white; border: 2px solid var(--border);
     border-radius: 20px; color: var(--text-muted);
     font-weight: 600; cursor: pointer; white-space: nowrap;
     transition: all 0.2s;
-    /* Prevents squishing on mobile */
     flex-shrink: 0; 
     display: inline-flex; align-items: center; justify-content: center;
+    height: auto;
+    line-height: 1.2;
 }
 .category-tab.active { background: var(--brand); color: white; border-color: var(--brand); }
+
+/* Products Grid */
+.products-grid {
+    display: grid; 
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
+    gap: 12px;
+    padding: 10px 5px 20px 5px; 
+    overflow-y: auto; align-content: start;
+}
+
+.product-card {
+    min-height: 125px; 
+    font-size: 1.1rem;
+    padding: 15px;
+    text-align: center; cursor: pointer; transition: 0.2s;
+    display: flex; flex-direction: column; justify-content: center;
+}
+.product-card:hover { transform: translateY(-3px); border-color: var(--tan); background: #fffbf7; }
+.product-card:active { transform: scale(0.96); }
 
 /* Cart Section */
 .cart-section {
     background: var(--surface); border-radius: var(--radius);
     display: flex; flex-direction: column; height: 100%; border: 1px solid var(--border);
-    min-height: 0; /* THE FIX: Forces flexbox to scroll instead of expanding infinitely */
+    min-height: 0; 
 }
 
-/* Mobile Specific Buttons */
-.mobile-cart-toggle { display: none; }
-.mobile-close-cart { display: none; }
+.qty-btn {
+    width: 44px !important; 
+    height: 44px !important;
+    font-size: 1.5rem !important;
+}
+
+.bill-item {
+    padding: 18px 0; 
+}
+
+/* --- SC/PWD TOGGLE BUTTONS --- */
+.radio-toggle { display: flex; gap: 10px; margin-bottom: 10px; }
+.radio-toggle input[type="radio"] { display: none; }
+.radio-toggle label { 
+    flex: 1; padding: 12px; text-align: center; background: #f3f4f6; 
+    color: gray; border-radius: 8px; cursor: pointer; 
+    border: 2px solid #ccc; font-weight: bold; transition: 0.2s;
+}
+.radio-toggle input[type="radio"]:checked + label.sc-label { background: var(--brand); color: white; border-color: var(--brand); }
+.radio-toggle input[type="radio"]:checked + label.pwd-label { background: var(--blue); color: white; border-color: var(--blue); }
 
 /* ============================================================
-   RESPONSIVE MEDIA QUERIES (TABLETS & PHONES) 
+   TABLET SLIDE-UP CART ACTIONS PANEL
    ============================================================ */
+.cart-bottom-panel {
+    background: var(--bg-dark);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+}
+
+.cart-actions-drawer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cart-bottom-panel.open .cart-actions-drawer {
+    max-height: 500px; /* Safe height for all buttons */
+}
+
+.action-grid {
+    display: grid; 
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 12px; 
+    padding: 0 20px 20px 20px;
+}
+
+/* ============================================================
+   SWEETALERT ENLARGEMENTS FOR TABLET
+   ============================================================ */
+.swal2-popup { font-size: 1.2rem !important; }
+.swal-check {
+    padding: 18px !important; 
+    margin-bottom: 5px;
+    background: #fdfcfb;
+    border-radius: 8px;
+}
+.swal2-radio label {
+    font-size: 1.2rem !important;
+    padding: 15px !important;
+}
+
+/* ============================================================
+   RESPONSIVE MEDIA QUERIES (PHONES - Just in case)
+   ============================================================ */
+.mobile-cart-toggle { display: none; }
+.mobile-close-cart { display: none; }
+.burger-menu {
+    display: none; background: transparent; border: none; 
+    color: white; font-size: 1.8rem; cursor: pointer; padding: 5px;
+}
+
 @media (max-width: 900px) {
     /* Navbar Stacking Fix */
-    nav {
-        flex-direction: column;
-        padding: 15px;
-        gap: 12px;
+    nav { 
+        position: relative; 
+        display: flex; 
+        flex-direction: row; 
+        justify-content: space-between; 
+        align-items: center; 
+        padding: 10px 15px; 
     }
+    .burger-menu { display: block; order: 2; }
+    .brand { order: 1; font-size: 1rem; }
+
     .nav-links {
-        display: flex; flex-wrap: wrap; justify-content: center; width: 100%;
+        display: none; 
+        flex-direction: column; 
+        width: 100%; 
+        background: var(--brand-dark); 
+        position: absolute; 
+        top: 100%; 
+        left: 0; 
+        padding: 15px; 
+        z-index: 1000; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+        gap: 5px;
     }
+    .nav-links.active { display: flex; }
     
     /* Layout Reset */
     .pos-container {
@@ -204,7 +360,7 @@ nav {
 
     /* Overlay Cart Fix */
     .cart-section {
-        display: none; /* Fully hidden by default */
+        display: none; 
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
         z-index: 1000;
@@ -240,224 +396,9 @@ nav {
     .products-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* --- SC/PWD TOGGLE BUTTONS --- */
-.radio-toggle { display: flex; gap: 10px; margin-bottom: 10px; }
-.radio-toggle input[type="radio"] { display: none; }
-.radio-toggle label { 
-    flex: 1; padding: 12px; text-align: center; background: #f3f4f6; 
-    color: gray; border-radius: 8px; cursor: pointer; 
-    border: 2px solid #ccc; font-weight: bold; transition: 0.2s;
-}
-.radio-toggle input[type="radio"]:checked + label.sc-label { background: var(--brand); color: white; border-color: var(--brand); }
-.radio-toggle input[type="radio"]:checked + label.pwd-label { background: var(--blue); color: white; border-color: var(--blue); }
-
-/* --- MOBILE BURGER MENU --- */
-.burger-menu {
-    display: none; background: transparent; border: none; 
-    color: white; font-size: 1.8rem; cursor: pointer; padding: 5px;
-}
-@media (max-width: 900px) {
-    nav { 
-        position: relative; 
-        display: flex; 
-        flex-direction: row; /* Force side-by-side */
-        justify-content: space-between; /* Logo left, Burger right */
-        align-items: center; 
-        padding: 10px 15px; 
-    }
-
-    .burger-menu { 
-        display: block; 
-        order: 2; /* Ensures it stays on the right */
-    }
-
-    .brand {
-        order: 1; /* Ensures it stays on the left */
-        font-size: 1rem; /* Slightly smaller to ensure fit */
-    }
-
-    .nav-links {
-        display: none; 
-        flex-direction: column; 
-        width: 100%; 
-        background: var(--brand-dark); 
-        position: absolute; 
-        top: 100%; 
-        left: 0; 
-        padding: 15px; 
-        z-index: 1000; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
-        gap: 5px;
-    }
-
-    .nav-links.active { 
-        display: flex; 
-    }
-}
 /* Mobile Table Scroller */
 .table-responsive {
     width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-}
-/* ============================================================
-   SAMSUNG TAB 8.7" TOUCH OPTIMIZATIONS (FULLY KIOSK)
-   ============================================================ */
-
-/* 1. Maximize Screen Real Estate */
-.pos-container {
-    padding: 10px; 
-    gap: 15px;
-    height: calc(100vh - 65px); /* Perfectly fits under your navbar */
-}
-
-/* 2. Thumb-Friendly Touch Targets for Menu */
-.products-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
-    gap: 12px;
-    padding-bottom: 20px;
-}
-
-.product-card {
-    min-height: 125px; /* Taller cards for fast tapping */
-    font-size: 1.1rem;
-    padding: 15px;
-    justify-content: center;
-}
-
-.category-tab {
-    padding: 16px 28px; /* Fatter tabs for scrolling */
-    font-size: 1.1rem;
-}
-
-/* 3. Fatter Cart Controls */
-.qty-btn {
-    width: 44px !important; /* Massive + and - buttons */
-    height: 44px !important;
-    font-size: 1.5rem !important;
-}
-
-.bill-item {
-    padding: 18px 0; /* More breathing room between cart items */
-}
-
-/* 4. Enlarge SweetAlert Popups for Baristas */
-.swal2-popup {
-    font-size: 1.2rem !important;
-}
-
-.swal-check {
-    padding: 18px !important; /* Massive touch areas for Add-ons */
-    margin-bottom: 5px;
-    background: #fdfcfb;
-    border-radius: 8px;
-}
-
-.swal2-radio label {
-    font-size: 1.2rem !important;
-    padding: 15px !important;
-}
-/* ============================================================
-   TABLET SLIDE-UP CART ACTIONS PANEL
-   ============================================================ */
-.cart-bottom-panel {
-    background: var(--bg-dark);
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
-}
-
-.cart-actions-drawer {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.cart-bottom-panel.open .cart-actions-drawer {
-    max-height: 400px; /* High enough to fit the buttons smoothly */
-}
-
-.action-grid {
-    display: grid; 
-    grid-template-columns: repeat(3, 1fr); /* 3 clean columns */
-    gap: 12px; 
-    padding: 0 20px 20px 20px;
-}
-/* ============================================================
-   SAMSUNG TAB 8.7" LANDSCAPE LOGIN (SCALED TO FIT)
-   ============================================================ */
-body.login-page {
-    background-color: var(--brand-dark); 
-    overflow: hidden; 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    margin: 0;
-}
-
-/* Constrain the card to always fit inside the screen */
-.landscape-card {
-    width: 90vw !important; /* Never wider than 90% of screen */
-    max-width: 700px !important; 
-    max-height: 90vh !important; /* Never taller than 90% of screen */
-    display: flex;
-    align-items: center;
-    gap: 30px;
-    padding: 30px 40px !important;
-    border-radius: 20px;
-    box-shadow: 0 15px 35px rgba(0,0,0,0.5);
-    background: var(--surface);
-    box-sizing: border-box;
-}
-
-.login-left {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.landscape-card .pin-grid {
-    flex: 1.2;
-    margin-top: 0 !important;
-    gap: 12px !important; /* Tighter gap so it doesn't push the borders */
-}
-
-/* Scaled-down Left Side Elements */
-.landscape-card .logo-img {
-    width: 110px !important;
-    height: 110px !important;
-    border-width: 4px !important;
-    margin-bottom: 15px !important;
-}
-
-.landscape-card .pin-display {
-    font-size: 2.5rem !important;
-    letter-spacing: 15px !important;
-    margin-bottom: 0 !important;
-    height: 60px !important;
-}
-
-/* Scaled-down, perfectly square thumb buttons */
-.landscape-card .pin-btn {
-    width: 75px !important;
-    height: 75px !important;
-    font-size: 2rem !important;
-    margin: 0 auto;
-}
-
-.landscape-card .pin-btn.enter { 
-    height: 65px !important; 
-    font-size: 1.3rem !important; 
-    width: 100% !important;
-}
-
-.landscape-card .pin-btn[onclick="clockIn()"] { 
-    height: 55px !important; 
-    font-size: 1rem !important; 
-    width: 100% !important;
 }
