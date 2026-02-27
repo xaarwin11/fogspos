@@ -88,18 +88,18 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
                     </div>
 
                     <div style="display:grid; grid-template-columns: 1fr 60px; gap:10px; margin-top:12px;">
-                        <button class="btn success" style="padding:15px; font-size:1.2rem; font-weight:800;" onclick="checkout()">CHARGE</button>
+                        <button class="btn" style="padding:15px; font-size:1.2rem; font-weight:800;" onclick="saveOrder()">💾 SAVE ORDER</button>
                         <button class="btn secondary" style="font-size:1.3rem; display:flex; justify-content:center; align-items:center;" onclick="toggleCartDrawer()" id="drawerBtn">⚙️</button>
                     </div>
                 </div>
 
                 <div class="cart-actions-drawer">
                     <div class="action-grid">
-                        <button class="btn secondary" onclick="printOrder('kitchen', event)">🖨️ Send Items</button>
-                        <button class="btn secondary" onclick="printOrder('bill', event)">📄 Print Bill</button>
+                        <button class="btn secondary" onclick="printOrder('kitchen', event)">🖨️ Send</button>
+                        <button class="btn secondary" onclick="printOrder('bill', event)">📄 Bill</button>
                         <button class="btn secondary" onclick="applyDiscountPopup()">🏷️ Disc</button>
                         <button class="btn secondary" onclick="clearCart()">🗑️ Clear</button>
-                        <button class="btn" onclick="saveOrder()" style="grid-column: span 2;">💾 Save Order</button>
+                        <button class="btn success" onclick="checkout()">💵 Charge</button>
                     </div>
                 </div>
             </div>
