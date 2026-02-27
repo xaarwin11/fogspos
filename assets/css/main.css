@@ -386,23 +386,31 @@ nav {
     padding: 0 20px 20px 20px;
 }
 /* ============================================================
-   SAMSUNG TAB 8.7" LANDSCAPE LOGIN FIX
+   SAMSUNG TAB 8.7" LANDSCAPE LOGIN (SCALED TO FIT)
    ============================================================ */
 body.login-page {
-    background-color: var(--brand-dark); /* Premium dark background */
-    overflow: hidden; /* Kills the scrolling completely */
-}
-
-/* Make it wide instead of tall! */
-.landscape-card {
-    max-width: 780px !important; 
+    background-color: var(--brand-dark); 
+    overflow: hidden; 
     display: flex;
     align-items: center;
-    gap: 40px;
-    padding: 40px 50px !important;
-    border-radius: 24px;
+    justify-content: center;
+    height: 100vh;
+    margin: 0;
+}
+
+/* Constrain the card to always fit inside the screen */
+.landscape-card {
+    width: 90vw !important; /* Never wider than 90% of screen */
+    max-width: 700px !important; 
+    max-height: 90vh !important; /* Never taller than 90% of screen */
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    padding: 30px 40px !important;
+    border-radius: 20px;
     box-shadow: 0 15px 35px rgba(0,0,0,0.5);
-    margin: auto;
+    background: var(--surface);
+    box-sizing: border-box;
 }
 
 .login-left {
@@ -413,41 +421,43 @@ body.login-page {
     justify-content: center;
 }
 
-/* Adjust the right side grid */
 .landscape-card .pin-grid {
     flex: 1.2;
     margin-top: 0 !important;
-    gap: 15px !important;
+    gap: 12px !important; /* Tighter gap so it doesn't push the borders */
 }
 
-/* Massive Left Side Elements */
+/* Scaled-down Left Side Elements */
 .landscape-card .logo-img {
-    width: 150px !important;
-    height: 150px !important;
-    border-width: 5px !important;
+    width: 110px !important;
+    height: 110px !important;
+    border-width: 4px !important;
     margin-bottom: 15px !important;
 }
 
 .landscape-card .pin-display {
-    font-size: 3.5rem !important;
-    letter-spacing: 20px !important;
+    font-size: 2.5rem !important;
+    letter-spacing: 15px !important;
     margin-bottom: 0 !important;
-    height: 70px !important;
+    height: 60px !important;
 }
 
-/* Thumb-friendly grid buttons that fit horizontally */
+/* Scaled-down, perfectly square thumb buttons */
 .landscape-card .pin-btn {
-    width: 85px !important;
-    height: 85px !important;
-    font-size: 2.2rem !important;
+    width: 75px !important;
+    height: 75px !important;
+    font-size: 2rem !important;
+    margin: 0 auto;
 }
 
 .landscape-card .pin-btn.enter { 
-    height: 70px !important; 
-    font-size: 1.5rem !important; 
+    height: 65px !important; 
+    font-size: 1.3rem !important; 
+    width: 100% !important;
 }
 
 .landscape-card .pin-btn[onclick="clockIn()"] { 
-    height: 60px !important; 
-    font-size: 1.1rem !important; 
+    height: 55px !important; 
+    font-size: 1rem !important; 
+    width: 100% !important;
 }
