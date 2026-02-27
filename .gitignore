@@ -1,0 +1,37 @@
+# ==========================================
+# FOGS POS - .gitignore
+# ==========================================
+
+# 1. Security & Passwords (CRITICAL)
+.env
+.env.*
+config.php
+db_backup.sql
+
+# 2. Log Files
+*.log
+error.log
+access.log
+php_errors.log
+
+# 3. Operating System Junk
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 4. Code Editor Workspaces (VS Code, IntelliJ)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 5. Future Dependencies (If you add Composer or Node.js later)
+vendor/
+node_modules/

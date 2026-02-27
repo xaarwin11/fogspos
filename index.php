@@ -81,8 +81,8 @@ if (isset($_SESSION['user_id'])) {
         }
         
         function update() {
-            // Temporarily shows numbers instead of dots so you can verify your thumbs!
-            document.getElementById('display').value = pin;
+            // SECURITY FIX: Replaces the actual digits with standard password dots
+            document.getElementById('display').value = '•'.repeat(pin.length);
         }
         
         function login() {

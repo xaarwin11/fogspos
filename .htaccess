@@ -1,0 +1,8 @@
+# SECURITY: Block public access to sensitive files
+<FilesMatch "^\.env|error\.log$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# SECURITY: Prevent directory listing (so people can't see all your files)
+Options -Indexes
