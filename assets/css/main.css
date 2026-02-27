@@ -386,60 +386,68 @@ nav {
     padding: 0 20px 20px 20px;
 }
 /* ============================================================
-   SAMSUNG TAB 8.7" LOGIN SCREEN OPTIMIZATIONS
+   SAMSUNG TAB 8.7" LANDSCAPE LOGIN FIX
    ============================================================ */
 body.login-page {
-    background-color: var(--brand-dark); /* Dark background makes the login card pop! */
+    background-color: var(--brand-dark); /* Premium dark background */
+    overflow: hidden; /* Kills the scrolling completely */
 }
 
-/* Make the login box much wider for the tablet */
-.login-card {
-    max-width: 550px !important; 
-    padding: 50px !important;
+/* Make it wide instead of tall! */
+.landscape-card {
+    max-width: 780px !important; 
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    padding: 40px 50px !important;
     border-radius: 24px;
-    box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+    margin: auto;
 }
 
-/* Scale up the logo */
-.logo-img {
-    width: 130px !important;
-    height: 130px !important;
-    border-width: 4px !important;
-    margin-bottom: 25px !important;
+.login-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 
-/* Massive PIN Display */
-.pin-display {
-    font-size: 4rem !important;
-    height: 80px;
-    margin-bottom: 30px !important;
-    letter-spacing: 25px !important;
+/* Adjust the right side grid */
+.landscape-card .pin-grid {
+    flex: 1.2;
+    margin-top: 0 !important;
+    gap: 15px !important;
 }
 
-/* Space out the numbers */
-.pin-grid {
-    gap: 20px !important; 
+/* Massive Left Side Elements */
+.landscape-card .logo-img {
+    width: 150px !important;
+    height: 150px !important;
+    border-width: 5px !important;
+    margin-bottom: 15px !important;
 }
 
-/* Thumb-friendly giant buttons */
-.pin-btn {
-    width: 100px !important;
-    height: 100px !important;
-    font-size: 2.5rem !important;
+.landscape-card .pin-display {
+    font-size: 3.5rem !important;
+    letter-spacing: 20px !important;
+    margin-bottom: 0 !important;
+    height: 70px !important;
 }
 
-/* Bigger action buttons */
-.pin-btn.enter {
+/* Thumb-friendly grid buttons that fit horizontally */
+.landscape-card .pin-btn {
+    width: 85px !important;
     height: 85px !important;
-    font-size: 1.8rem !important;
-    border-radius: 16px !important;
-    margin-top: 10px !important;
+    font-size: 2.2rem !important;
 }
 
-/* Style the Time Clock button specifically */
-.pin-btn[onclick="clockIn()"] {
-    height: 75px !important;
-    font-size: 1.3rem !important;
-    border-radius: 16px !important;
-    margin-top: 10px !important;
+.landscape-card .pin-btn.enter { 
+    height: 70px !important; 
+    font-size: 1.5rem !important; 
+}
+
+.landscape-card .pin-btn[onclick="clockIn()"] { 
+    height: 60px !important; 
+    font-size: 1.1rem !important; 
 }

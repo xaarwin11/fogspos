@@ -33,13 +33,15 @@ if (isset($_SESSION['user_id'])) {
 
 <body class="login-page">
 
-    <div class="login-card">
-        <img src="assets/img/logo.jpg" class="logo-img" alt="Logo">
-        
-        <h2>Welcome</h2>
-        
-        <input type="password" id="display" class="pin-display" readonly 
-       placeholder="••••" inputmode="numeric" autocomplete="one-time-code">
+    <div class="login-card landscape-card">
+        <div class="login-left">
+            <img src="assets/img/logo.jpg" class="logo-img" alt="Logo">
+            <h2 style="margin-bottom: 5px;">Fogs Tasas Cafe</h2>
+            <p style="color:var(--text-muted); margin-top:0; margin-bottom: 20px;">Staff Login</p>
+            
+            <input type="password" id="display" class="pin-display" readonly 
+                   placeholder="••••" inputmode="numeric" autocomplete="one-time-code">
+        </div>
         
         <div class="pin-grid">
             <button class="pin-btn" onclick="add(1)">1</button>
