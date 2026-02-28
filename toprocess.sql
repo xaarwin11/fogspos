@@ -12,3 +12,9 @@ CREATE TABLE `verified_customers` (
 
 -- 2. Drop the redundant physical status column
 ALTER TABLE `tables` DROP COLUMN `status`;
+
+CREATE TABLE login_attempts (
+    ip_address VARCHAR(45) PRIMARY KEY,
+    attempts INT DEFAULT 1,
+    last_attempt DATETIME
+);

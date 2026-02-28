@@ -3,7 +3,6 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-// Check Security Token
 $headers = getallheaders();
 $token = $headers['X-CSRF-Token'] ?? '';
 if (!hash_equals($_SESSION['public_csrf'] ?? '', $token)) {
@@ -11,25 +10,33 @@ if (!hash_equals($_SESSION['public_csrf'] ?? '', $token)) {
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
-$mysqli = get_db_conn(); // Uses your production-ready DB connection
+$mysqli = get_db_conn(); 
 
 try {
     $mysqli->begin_transaction();
 
-    // 1. Create the Master Order record
-    // We mark it as 'takeout' and 'open' (unpaid) so staff can process it in the shop
     $ref = "WEB-" . strtoupper(bin2hex(random_bytes(2)));
-    $cust_info = $input['name'] . " (" . $input['phone'] . ")";
+    $cust_name = $_SESSION['customer_name'] ?? 'Guest';
+    $cust_phone = $_SESSION['customer_phone'] ?? 'No Phone';
+    $cust_info = $cust_name . " (" . $cust_phone . ")";
     
-    $stmt = $mysqli->prepare("INSERT INTO orders (reference, order_type, customer_name, status, created_at) VALUES (?, 'takeout', ?, 'open', NOW())");
-    $stmt->bind_param("ss", $ref, $cust_info);
+    // Format SC/PWD details for the barista to review
+    $discount_note = '';
+    if (!empty($input['sc_pwd'])) {
+        $discount_note = "PENDING SC/PWD: " . $input['sc_pwd']['type'] . " - " . $input['sc_pwd']['name'] . " (" . $input['sc_pwd']['id_num'] . ")";
+        // Note: The base64 image ($input['sc_pwd']['image']) could be saved to the database here 
+        // if you add an `id_image_data` LONGTEXT column to your `orders` table.
+    }
+
+    $stmt = $mysqli->prepare("INSERT INTO orders (reference, order_type, customer_name, status, discount_note, created_at) VALUES (?, 'takeout', ?, 'open', ?, NOW())");
+    $stmt->bind_param("sss", $ref, $cust_info, $discount_note);
     $stmt->execute();
     $order_id = $mysqli->insert_id;
 
-    // 2. Add the items
-    $item_stmt = $mysqli->prepare("INSERT INTO order_items (order_id, product_id, quantity, base_price) VALUES (?, ?, 1, ?)");
+    $item_stmt = $mysqli->prepare("INSERT INTO order_items (order_id, product_id, quantity, base_price) VALUES (?, ?, ?, ?)");
     foreach ($input['items'] as $item) {
-        $item_stmt->bind_param("iid", $order_id, $item['id'], $item['price']);
+        $qty = (int)$item['qty'];
+        $item_stmt->bind_param("iiid", $order_id, $item['id'], $qty, $item['price']);
         $item_stmt->execute();
     }
 
@@ -38,6 +45,7 @@ try {
 
 } catch (Exception $e) {
     $mysqli->rollback();
-    error_log("Public Order Error: " . $e->getMessage()); // Logs to your error.log
+    error_log("Public Order Error: " . $e->getMessage()); 
     echo json_encode(['success' => false, 'error' => 'Server busy. Please try again.']);
 }
+?>

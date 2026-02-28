@@ -31,7 +31,3 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
-
-# 5. Future Dependencies (If you add Composer or Node.js later)
-vendor/
-node_modules/

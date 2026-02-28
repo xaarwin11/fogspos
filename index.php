@@ -36,7 +36,7 @@ if (isset($_SESSION['user_id'])) {
     <div class="login-card landscape-card">
         <div class="login-left">
             <img src="assets/img/logo.jpg" class="logo-img" alt="Logo">
-            <h2 style="margin-bottom: 5px;">Fogs Tasas Cafe</h2>
+            <h2 style="margin-bottom: 5px;">FogsTasa's Cafe</h2>
             <p style="color:var(--text-muted); margin-top:0; margin-bottom: 20px;">Staff Login</p>
             
             <input type="password" id="display" class="pin-display" readonly 
