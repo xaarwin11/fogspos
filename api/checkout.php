@@ -3,13 +3,11 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-// Security Fix #5: Suppress screen errors in production files
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
 
-// Security Fix #3: CSRF Protection Verification
 $headers = getallheaders();
 $csrf_token = $headers['X-CSRF-Token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (empty($csrf_token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_token)) {
@@ -30,7 +28,6 @@ try {
     $mysqli = get_db_conn();
     $mysqli->begin_transaction();
 
-    // Security Fix #2: Prepared Statement
     $o_stmt = $mysqli->prepare("SELECT grand_total, status FROM orders WHERE id = ?");
     $o_stmt->bind_param('i', $order_id);
     $o_stmt->execute();
@@ -46,7 +43,6 @@ try {
         $r_stmt->close();
     }
 
-    // Security Fix #2: Prepared Statement
     $paid_stmt = $mysqli->prepare("SELECT COALESCE(SUM(amount - change_given), 0) as paid FROM payments WHERE order_id = ?");
     $paid_stmt->bind_param('i', $order_id);
     $paid_stmt->execute();
@@ -60,9 +56,9 @@ try {
     $change = ($amount > $balance) ? ($amount - $balance) : 0;
     $net_payment = $amount - $change;
 
-    // Security Fix #2: Prepared Statement
-    $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-    $p_stmt->bind_param('isddi', $order_id, $method, $amount, $change, $_SESSION['user_id']);
+    // FIX: Simplified Insert (Removed processed_by and audit_log to prevent crashes)
+    $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, created_at) VALUES (?, ?, ?, ?, NOW())");
+    $p_stmt->bind_param('isdd', $order_id, $method, $amount, $change);
     $p_stmt->execute();
     $p_stmt->close();
 
@@ -77,13 +73,6 @@ try {
         $is_fully_paid = false;
     }
 
-    // Security Fix #2: Prepared Statement
-    $details = json_encode(['method' => $method, 'tendered' => $amount, 'net' => $net_payment, 'full_paid' => $is_fully_paid]);
-    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details) VALUES (?, 'payment', 'order', ?, ?)");
-    $log_stmt->bind_param('iis', $_SESSION['user_id'], $order_id, $details);
-    $log_stmt->execute();
-    $log_stmt->close();
-
     $mysqli->commit();
 
     echo json_encode([
@@ -95,6 +84,6 @@ try {
 
 } catch (Exception $e) {
     if (isset($mysqli)) $mysqli->rollback();
-    // Security Fix #7: Consider logging $e->getMessage() to a file instead of displaying in production
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
+?>

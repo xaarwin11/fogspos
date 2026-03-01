@@ -2,7 +2,6 @@
 require_once '../db.php';
 session_start();
 
-// Enable Error Reporting so if something breaks, it tells you WHY instead of a blank screen
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
@@ -14,29 +13,26 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
 
 $mysqli = get_db_conn();
 
-// 1. Date Navigator Logic
 $date = $_GET['date'] ?? date('Y-m-d');
 $prev_date = date('Y-m-d', strtotime($date . ' -1 day'));
 $next_date = date('Y-m-d', strtotime($date . ' +1 day'));
 $display_date = date('D, M d, Y', strtotime($date));
 $is_today = ($date === date('Y-m-d'));
 
-// Safe Default Arrays (Prevents Blank Screen if Queries Fail)
 $sales = ['total_orders' => 0, 'total_sales' => 0];
 $payments = [];
 $shifts = [];
 $orders = [];
 
 try {
-    // 2. Fetch Gross Sales & Order Count
-    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales FROM orders WHERE DATE(created_at) = ? AND status = 'paid'")) {
+    // FIX: Sales math is now calculated based strictly on the PAID_AT date!
+    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {
         $stmt1->bind_param('s', $date);
         $stmt1->execute();
         $sales = $stmt1->get_result()->fetch_assoc();
         $stmt1->close();
     }
 
-    // 3. Fetch Tender Breakdown
     if ($stmt2 = $mysqli->prepare("SELECT method, SUM(amount - change_given) as net_amount FROM payments WHERE DATE(created_at) = ? GROUP BY method")) {
         $stmt2->bind_param('s', $date);
         $stmt2->execute();
@@ -44,7 +40,6 @@ try {
         $stmt2->close();
     }
 
-    // 4. Fetch Register Shifts (Safely)
     if ($stmt_shift = $mysqli->prepare("SELECT r.*, u1.username as opener, u2.username as closer FROM register_shifts r LEFT JOIN users u1 ON r.opened_by = u1.id LEFT JOIN users u2 ON r.closed_by = u2.id WHERE DATE(r.opened_at) = ? ORDER BY r.opened_at DESC")) {
         $stmt_shift->bind_param('s', $date);
         $stmt_shift->execute();
@@ -52,15 +47,14 @@ try {
         $stmt_shift->close();
     }
 
-    // 5. Fetch Order History Log
-    if ($stmt3 = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE DATE(o.created_at) = ? ORDER BY o.created_at DESC")) {
+    // FIX: Show orders that were EITHER created today, or paid today.
+    if ($stmt3 = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE DATE(COALESCE(o.paid_at, o.created_at)) = ? ORDER BY COALESCE(o.paid_at, o.created_at) DESC")) {
         $stmt3->bind_param('s', $date);
         $stmt3->execute();
         $orders = $stmt3->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt3->close();
     }
 } catch (Exception $e) {
-    // Instead of a white screen, print the exact SQL error at the top of the page!
     echo "<div style='background:red; color:white; padding:10px;'>Database Error: " . $e->getMessage() . "</div>";
 }
 ?>
@@ -316,22 +310,22 @@ try {
                 const o = data.order;
                 let html = `<div style="text-align:left; font-family:monospace; background:#f9fafb; padding:15px; border:1px solid #ddd; border-radius:8px; max-height:450px; overflow-y:auto; font-size:0.95rem; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">`;
                 
-                // Header
+                // Header (FIX: Time Opened vs Time Closed)
                 html += `<div style="text-align:center; font-weight:bold; font-size:1.2rem; margin-bottom:10px; color:var(--brand-dark);">ORDER #${o.id}</div>`;
-                html += `<div><strong>Date:</strong> ${new Date(o.created_at).toLocaleString()}</div>`;
+                html += `<div><strong>Opened:</strong> ${new Date(o.created_at).toLocaleString()}</div>`;
+                if (o.paid_at) { html += `<div><strong>Closed:</strong> ${new Date(o.paid_at).toLocaleString()}</div>`; }
+                
                 html += `<div><strong>Type:</strong> ${o.order_type.toUpperCase()} ${o.table_number ? '(Table '+o.table_number+')' : ''}</div>`;
                 if (o.customer_name) html += `<div><strong>Customer:</strong> ${o.customer_name}</div>`;
                 if (o.cashier) html += `<div><strong>Cashier:</strong> ${o.cashier}</div>`;
                 html += `<div><strong>Status:</strong> <span style="text-transform:uppercase; font-weight:bold; color:${o.status === 'paid' ? 'green' : (o.status === 'refunded' ? 'red' : (o.status === 'voided' ? '#c62828' : 'orange'))}">${o.status}</span></div>`;
                 
-                // Dynamically display the void reason if it exists!
                 if (o.void_reason) {
                     html += `<div style="margin-top: 5px; padding: 5px; background: #ffebee; border-left: 3px solid #c62828;"><strong>Reason:</strong> <span style="color:#c62828; font-weight:bold;">${o.void_reason}</span></div>`;
                 }
 
                 html += `<hr style="border-top:1px dashed #ccc; margin:15px 0;">`;
                 
-                // Items Loop
                 data.items.forEach(i => {
                     let name = i.variation_name ? `${i.product_name} (${i.variation_name})` : i.product_name;
                     html += `<div style="display:flex; justify-content:space-between; margin-bottom:2px;"><span><strong>${i.quantity}x</strong> ${name}</span> <span>₱${parseFloat(i.line_total).toFixed(2)}</span></div>`;
@@ -348,15 +342,28 @@ try {
                 
                 html += `<hr style="border-top:1px dashed #ccc; margin:10px 0;">`;
                 
-                // Totals
                 html += `<div style="display:flex; justify-content:space-between;"><span>Subtotal:</span> <span>₱${parseFloat(o.subtotal).toFixed(2)}</span></div>`;
+                
+                // FIX: Reconstruct the Global Discount Label relationally!
                 if (parseFloat(o.discount_total) > 0) {
                     html += `<div style="display:flex; justify-content:space-between; color:#c62828;"><span>Total Discount:</span> <span>-₱${parseFloat(o.discount_total).toFixed(2)}</span></div>`;
-                    if (o.discount_note) html += `<div style="color:#c62828; font-size:0.8rem; font-style:italic;">Note: ${o.discount_note}</div>`;
+                    
+                    let finalNote = '';
+                    if (o.sc_records && o.sc_records.length > 0) {
+                        finalNote = `SC/PWD (${o.sc_records.length} Pax)`;
+                    } else if (o.discount_name) {
+                        finalNote = o.discount_name + (o.discount_type === 'percent' ? ` (${parseFloat(o.discount_value)}%)` : '');
+                    } else if (o.discount_note) {
+                        finalNote = o.discount_note;
+                    }
+                    
+                    if (finalNote) {
+                        html += `<div style="color:#c62828; font-size:0.8rem; font-style:italic;">Note: ${finalNote}</div>`;
+                    }
                 }
+                
                 html += `<div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2rem; margin-top:10px; color:var(--brand);"><span>Grand Total:</span> <span>₱${parseFloat(o.grand_total).toFixed(2)}</span></div>`;
                 
-                // Payments
                 if (data.payments && data.payments.length > 0) {
                     html += `<hr style="border-top:1px dashed #ccc; margin:15px 0;">`;
                     html += `<div style="margin-bottom:5px;"><strong>Tender Details:</strong></div>`;

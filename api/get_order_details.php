@@ -3,7 +3,6 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-// Security: Hide errors
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
@@ -21,8 +20,15 @@ if (!$order_id) {
 try {
     $mysqli = get_db_conn();
     
-    // 1. Fetch main order data
-    $o_stmt = $mysqli->prepare("SELECT o.*, t.table_number, u.username as cashier FROM orders o LEFT JOIN tables t ON o.table_id = t.id LEFT JOIN users u ON o.checked_out_by = u.id WHERE o.id = ?");
+    // FIX: Relational JOIN to grab the discount name and type!
+    $o_stmt = $mysqli->prepare("
+        SELECT o.*, t.table_number, u.username as cashier, d.name as discount_name, d.type as discount_type, d.value as discount_value 
+        FROM orders o 
+        LEFT JOIN tables t ON o.table_id = t.id 
+        LEFT JOIN users u ON o.checked_out_by = u.id 
+        LEFT JOIN discounts d ON o.discount_id = d.id
+        WHERE o.id = ?
+    ");
     $o_stmt->bind_param('i', $order_id);
     $o_stmt->execute();
     $order = $o_stmt->get_result()->fetch_assoc();
@@ -30,7 +36,13 @@ try {
     
     if (!$order) throw new Exception("Order not found.");
 
-    // 2. Fetch order items
+    // FIX: Fetch SC details if they exist
+    $sc_stmt = $mysqli->prepare("SELECT * FROM order_sc_pwd WHERE order_id = ?");
+    $sc_stmt->bind_param('i', $order_id);
+    $sc_stmt->execute();
+    $order['sc_records'] = $sc_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $sc_stmt->close();
+
     $i_stmt = $mysqli->prepare("SELECT * FROM order_items WHERE order_id = ?");
     $i_stmt->bind_param('i', $order_id);
     $i_stmt->execute();
@@ -48,7 +60,6 @@ try {
     }
     $m_stmt->close();
 
-    // 3. Fetch payment history
     $p_stmt = $mysqli->prepare("SELECT method, amount, change_given, created_at FROM payments WHERE order_id = ? ORDER BY created_at ASC");
     $p_stmt->bind_param('i', $order_id);
     $p_stmt->execute();
