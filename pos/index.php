@@ -189,7 +189,7 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
             // 30000 milliseconds = 30 seconds. (Change to 60000 for 1 minute if 30s is too fast)
             idleTimer = setTimeout(() => {
                 window.location.href = '../api/auth_logout.php';
-            }, 30000); 
+            }, 60000); 
         }
 
         // Listen for ANY screen touch or tap to keep the session alive
