@@ -61,9 +61,15 @@ async function handleProductSelection(p) {
 
     if (p.variations && p.variations.length > 0) {
         const { value: vId } = await Swal.fire({
-            title: 'Select Size', input: 'radio',
-            inputOptions: p.variations.reduce((a, v) => ({...a, [v.id]: `${v.name} (₱${v.price})`}), {}),
-            confirmButtonColor: '#6B4226'
+            title: 'Select Size',
+            html: `
+                <div class="var-grid">
+                    ${p.variations.map(v => `<div class="var-btn size-btn" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`).join('')}
+                </div>
+                <input type="hidden" id="swal-v">
+            `,
+            preConfirm: () => document.getElementById('swal-v').value || Swal.showValidationMessage('Please select a size'),
+            confirmButtonColor: '#6B4226', showCancelButton: true
         });
         if (!vId) return;
         const v = p.variations.find(v => v.id == vId);
@@ -148,8 +154,21 @@ function renderCart() {
 
     let discRow = document.getElementById('appliedDiscountRow');
     if (totalCombinedDiscount > 0) {
-        let displayNote = state.discount_note || 'Total Discount';
-        if (state.custom_discount.is_active && state.custom_discount.note) displayNote = "Custom: " + state.custom_discount.note;
+        
+        // Relational Text Generation!
+        let displayNote = 'Total Discount';
+        
+        if (state.discount_id) {
+            // Find the name relationally from the database array
+            const d = state.discounts.find(x => x.id == state.discount_id);
+            if (d) displayNote = d.name + (d.type === 'percent' ? ` (${parseFloat(d.value)}%)` : '');
+        } 
+        else if (state.custom_discount.is_active && state.custom_discount.note) {
+            displayNote = "Custom: " + state.custom_discount.note;
+        } 
+        else if (state.discount_note) {
+            displayNote = state.discount_note; // Fallback for legacy orders
+        }
 
         if (!discRow) {
             document.getElementById('summaryArea').insertAdjacentHTML('beforeend', `
@@ -205,15 +224,20 @@ window.editCartItem = async function(idx) {
 
     if (p.variations && p.variations.length > 0) {
         const { value: vId } = await Swal.fire({
-            title: 'Update Size', input: 'radio', inputValue: selectedVar,
-            inputOptions: p.variations.reduce((a, v) => ({...a, [v.id]: `${v.name} (₱${v.price})`}), {}),
+            title: 'Select Size',
+            html: `
+                <div class="var-grid">
+                    ${p.variations.map(v => `<div class="var-btn size-btn" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`).join('')}
+                </div>
+                <input type="hidden" id="swal-v">
+            `,
+            preConfirm: () => document.getElementById('swal-v').value || Swal.showValidationMessage('Please select a size'),
             confirmButtonColor: '#6B4226', showCancelButton: true
         });
-        if (vId) {
-            const v = p.variations.find(v => v.id == vId);
-            item.variation_id = v.id; item.variation_name = v.name;
-            item.name = `${p.name} (${v.name})`; item.price = parseFloat(v.price);
-        }
+        if (!vId) return;
+        const v = p.variations.find(v => v.id == vId);
+        item.variation_id = v.id; item.variation_name = v.name;
+        item.name = `${p.name} (${v.name})`; item.price = parseFloat(v.price);
     }
 
     const pMods = p.modifiers || [];
@@ -243,19 +267,45 @@ window.editCartItem = async function(idx) {
 
 window.promptItemDiscount = async function(idx) {
     const item = state.cart[idx];
+    const mCost = item.modifiers.reduce((s, m) => s + m.price, 0);
+    const lineTotalRaw = (item.price + mCost) * item.qty; // The max allowed discount
+
     const { value: formValues } = await Swal.fire({
         title: 'Item Discount',
         html: `
-            <input type="number" id="idisc-amount" class="swal2-input" placeholder="Amount (₱)" step="0.01" value="${item.discount_amount || ''}">
-            <input type="text" id="idisc-note" class="swal2-input" placeholder="Reason/Note" value="${item.discount_note || ''}">
-            <button class="btn danger" style="width:100%; margin-top:10px;" onclick="document.getElementById('idisc-amount').value=''; document.getElementById('idisc-note').value='';">Clear Discount</button>
+            <div style="font-weight:bold; color:var(--text-muted); margin-bottom:15px;">Max Allowed: ₱${lineTotalRaw.toFixed(2)}</div>
+            <select id="idisc-type" class="search-bar" style="margin-bottom:10px; font-weight:bold; text-align:center;">
+                <option value="amount" ${item.discount_type === 'amount' ? 'selected' : ''}>Flat Amount (₱)</option>
+                <option value="percent" ${item.discount_type === 'percent' ? 'selected' : ''}>Percentage (%)</option>
+            </select>
+            <input type="number" id="idisc-val" class="swal2-input" placeholder="Value" step="0.01" value="${item.discount_val || ''}">
+            <input type="text" id="idisc-note" class="swal2-input" placeholder="Reason (e.g. Spilled, VIP)" value="${item.discount_note || ''}">
+            <button class="btn danger" style="width:100%; margin-top:10px;" onclick="document.getElementById('idisc-val').value=''; document.getElementById('idisc-note').value='';">Clear Discount</button>
         `,
         focusConfirm: false,
-        preConfirm: () => { return { amount: parseFloat(document.getElementById('idisc-amount').value) || 0, note: document.getElementById('idisc-note').value || 'Custom' } }
+        preConfirm: () => {
+            const type = document.getElementById('idisc-type').value;
+            const val = parseFloat(document.getElementById('idisc-val').value) || 0;
+            const note = document.getElementById('idisc-note').value;
+
+            let calculatedAmount = 0;
+            if (val > 0) {
+                if (type === 'percent') {
+                    if (val > 100) return Swal.showValidationMessage('Cannot exceed 100%');
+                    calculatedAmount = lineTotalRaw * (val / 100);
+                } else {
+                    if (val > lineTotalRaw) return Swal.showValidationMessage('Discount cannot exceed item price (₱' + lineTotalRaw.toFixed(2) + ')');
+                    calculatedAmount = val;
+                }
+            }
+            return { type, val, amount: calculatedAmount, note };
+        }
     });
 
     if (formValues) {
-        state.cart[idx].discount_amount = formValues.amount;
+        state.cart[idx].discount_type = formValues.type;
+        state.cart[idx].discount_val = formValues.val;
+        state.cart[idx].discount_amount = formValues.amount; // The actual ₱ deducted
         state.cart[idx].discount_note = formValues.note;
         renderCart();
     }
@@ -292,7 +342,15 @@ window.clearCart = function() {
 window.applyDiscountPopup = async function() {
     if(state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
     let html = '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">';
-    state.discounts.forEach(d => { html += `<button class="btn secondary" onclick="selectDiscount(${d.id})">${d.name}</button>`; });
+    state.discounts.forEach(d => { 
+        // =================================================================
+        // FIX #4: SHOW PERCENTAGE/AMOUNT ON THE ACTUAL DISCOUNT BUTTON
+        // =================================================================
+        let label = d.name;
+        if (d.type === 'percent') label += ` (${parseFloat(d.value)}%)`;
+        else label += ` (₱${parseFloat(d.value)})`;
+        html += `<button class="btn secondary" onclick="selectDiscount(${d.id})">${label}</button>`; 
+    });
     html += `</div>`;
     html += `<button class="btn" style="width:100%; background:var(--blue); margin-bottom:10px;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
     html += `<button class="btn danger" style="width:100%;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
@@ -380,7 +438,8 @@ window.selectDiscount = async function(discId) {
                     <label for="pwd_${uniqueId}" class="pwd-label">PWD</label>
                 </div>
                 <input type="text" class="search-bar s-name" placeholder="Full Name" style="margin-bottom:5px; padding:10px;">
-                <input type="text" class="search-bar s-id" placeholder="ID Number" style="margin-bottom:0; padding:10px;">
+                <input type="text" class="search-bar s-id" placeholder="ID Number" style="margin-bottom:5px; padding:10px;">
+                <input type="text" class="search-bar s-address" placeholder="Address (Optional)" style="margin-bottom:0; padding:10px;">
             </div>
         `;
 
@@ -404,7 +463,8 @@ window.selectDiscount = async function(discId) {
                                 <label for="pwd_${uId}" class="pwd-label">PWD</label>
                             </div>
                             <input type="text" class="search-bar s-name" placeholder="Full Name" style="margin-bottom:5px; padding:10px;">
-                            <input type="text" class="search-bar s-id" placeholder="ID Number" style="margin-bottom:0; padding:10px;">
+                            <input type="text" class="search-bar s-id" placeholder="ID Number" style="margin-bottom:5px; padding:10px;">
+                            <input type="text" class="search-bar s-address" placeholder="Address (Optional)" style="margin-bottom:0; padding:10px;">
                         </div>
                     `); 
                 };
@@ -414,9 +474,10 @@ window.selectDiscount = async function(discId) {
                 for (let r of document.querySelectorAll('.s-row')) {
                     const id = r.querySelector('.s-id').value;
                     const name = r.querySelector('.s-name').value;
+                    const address = r.querySelector('.s-address').value; // Grab the address!
                     const type = r.querySelector('.s-type:checked').value;
                     if (!id || !name) { Swal.showValidationMessage('Name and ID are both required!'); return false; }
-                    data.push({ type: type, id: id, name: name });
+                    data.push({ type: type, id: id, name: name, address: address });
                 }
                 return data;
             }
@@ -425,6 +486,10 @@ window.selectDiscount = async function(discId) {
             state.senior_details = details; state.discount_note = `SC/PWD (${details.length} Pax)`;
             Swal.fire({title:'Calculating...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
             await saveOrder(true);
+            // ==============================================================================
+            // FIX #1: CLOSE THE LOADING SPINNER AFTER SAVING THE SC/PWD DETAILS!
+            // ==============================================================================
+            Swal.fire({title: 'Applied', text: 'Discount added successfully.', icon: 'success', timer: 1000, showConfirmButton: false});
         } else { state.discount_id = null; }
     } else {
         state.discount_note = d.name;
@@ -435,7 +500,6 @@ window.selectDiscount = async function(discId) {
 };
 
 function syncOrderState(d) {
-    // 🚨 FIX: Always force the app's memory to match the exact database order ID!
     state.activeOrderId = d.order_id || (d.order_info ? d.order_info.id : null);
     
     state.cart = d.items;
@@ -457,6 +521,11 @@ function syncOrderState(d) {
     state.discount_id = d.order_info.discount_id || null;
     state.amount_paid = parseFloat(d.order_info.amount_paid) || 0;
     state.customer_name = d.order_info.customer_name || null;
+    
+    // ==============================================================================
+    // FIX #3: SYNC THE DATABASE SC/PWD ARRAY BACK INTO THE POS JAVASCRIPT MEMORY!
+    // ==============================================================================
+    state.senior_details = d.order_info.senior_details || [];
 }
 
 window.saveOrder = async function(silent = false) {

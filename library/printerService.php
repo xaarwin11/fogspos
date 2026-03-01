@@ -62,9 +62,13 @@ class PrinterService
             } catch (Exception $e) {}
 
             $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
-            $this->printer->text(($meta['Store'] ?? "FOGS RESTAURANT") . "\n");
+            $this->printer->text(($meta['Store'] ?? "FogsTasa's Cafe") . "\n");
             $this->printer->selectPrintMode(Printer::MODE_FONT_A);
             
+            $this->printer->setEmphasis(true);
+            $this->printer->text("NON-VAT Reg.\n"); 
+            $this->printer->setEmphasis(false);
+
             if (!empty($meta['Address'])) $this->printer->text($meta['Address'] . "\n");
             if (!empty($meta['Phone'])) $this->printer->text("Tel: " . $meta['Phone'] . "\n");
             $this->printer->feed(1);
@@ -72,6 +76,7 @@ class PrinterService
 
         $this->printer->setEmphasis(true);
         $this->printer->selectPrintMode(Printer::MODE_DOUBLE_HEIGHT);
+        $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
         $this->printer->text(strtoupper($title) . "\n"); 
         $this->printer->setEmphasis(false);
         $this->printer->selectPrintMode(Printer::MODE_FONT_A);
@@ -79,63 +84,73 @@ class PrinterService
         $this->printer->setJustification(Printer::JUSTIFY_LEFT);
         $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
 
-        if ($showPrice && !empty($meta['Ref'])) {
-            $this->printer->setEmphasis(true);
-            $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
-            $this->printer->text("ORDER #: " . $meta['Ref'] . "\n");
-            $this->printer->selectPrintMode(Printer::MODE_FONT_A);
-            $this->printer->setEmphasis(false);
+        if ($showPrice) {
+            $leftHeader = "";
+            $rightHeader = !empty($meta['Ref']) ? "REF#:" . $meta['Ref'] : "";
+            
+            if (isset($meta['Type']) && $meta['Type'] === 'TAKEOUT') {
+                $leftHeader = "TAKEOUT";
+            } elseif (!empty($meta['Table'])) {
+                $leftHeader = "TABLE:" . $meta['Table']; 
+            }
+            
+            if ($leftHeader || $rightHeader) {
+                $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
+                $doubleWidthLimit = floor($this->charLimit / 2);
+                $spaces = $doubleWidthLimit - strlen($leftHeader) - strlen($rightHeader);
+                if ($spaces < 1) $spaces = 1;
+                $this->printer->text($leftHeader . str_repeat(" ", $spaces) . $rightHeader . "\n");
+                $this->printer->selectPrintMode(Printer::MODE_FONT_A);
+            }
+
+            $this->printer->text($this->columnize(
+                "STAFF: " . ($meta['Staff'] ?? 'N/A'), 
+                "TIME: " . ($meta['Date'] ?? date('H:i'))
+            ));
+
+            if (!empty($meta['Customer'])) {
+                $this->printer->text("NAME: " . strtoupper($meta['Customer']) . "\n");
+            }
             $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
         }
 
-        if (isset($meta['Type']) && $meta['Type'] === 'TAKEOUT') {
-            $this->printer->setEmphasis(true);
-            $this->printer->text("TYPE:  TAKEOUT\n");
-            $this->printer->setEmphasis(false);
-        } elseif (!empty($meta['Table'])) {
-            $this->printer->setEmphasis(true);
-            $this->printer->text("TABLE: " . $meta['Table'] . "\n");
-            $this->printer->setEmphasis(false);
+        $itemCount = 0;
+        
+        $is_sc_pwd = false;
+        if (!empty($meta['SC_Records'])) {
+            $is_sc_pwd = true;
+        } else {
+            $dl = strtolower($meta['DiscountLabel'] ?? '');
+            if (preg_match('/\b(sc|pwd|senior)\b/', $dl)) {
+                $is_sc_pwd = true;
+            }
         }
-
-        if (!empty($meta['Customer'])) {
-            $this->printer->setEmphasis(true);
-            $this->printer->text("NAME:  " . strtoupper($meta['Customer']) . "\n");
-            $this->printer->setEmphasis(false);
-        }
-        if (isset($meta['Staff'])) $this->printer->text("STAFF: " . $meta['Staff'] . "\n");
-        if (isset($meta['Date']))  $this->printer->text("TIME:  " . $meta['Date'] . "\n");
-        $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
 
         foreach ($items as $item) {
             $qty   = (int)$item['quantity'];
-            $name  = $item['name'];
             $price = (float)($item['price'] ?? 0); 
             $rawLineTotal = ($qty * $price);
+            
+            // Dynamic Name Truncation
+            $priceStr = number_format($rawLineTotal, 2);
+            $maxNameLen = $this->charLimit - strlen((string)$qty) - strlen($priceStr) - 2;
+            if ($maxNameLen < 5) $maxNameLen = 5; 
+            $name  = substr($item['name'], 0, $maxNameLen);
+            
             $total += $rawLineTotal; 
+            $itemCount += $qty;
             
             if ($showPrice) {
-                // Receipt Mode: Print Item
-                $this->printer->text($this->columnize($qty . "x " . $name, number_format($rawLineTotal, 2)));
-                
-                // Print Modifiers
+                $this->printer->text($this->columnize($qty . " " . $name, $priceStr));
                 if (!empty($item['modifiers'])) {
                     foreach ($item['modifiers'] as $mod) {
                         $this->printer->text("  + " . ($mod['name'] ?? $mod) . "\n");
                     }
                 }
-
-                // FIX 2: Print Item-Level Discounts right under the item!
-                if (!empty($item['discount_amount']) && (float)$item['discount_amount'] > 0) {
-                    $d_note = !empty($item['discount_note']) ? $item['discount_note'] : 'Discount';
-                    $this->printer->text("  * Less: " . $d_note . " (-" . number_format((float)$item['discount_amount'], 2) . ")\n");
-                }
             } else {
-                // Kitchen Mode: Print Item & Modifiers larger
                 $this->printer->selectPrintMode(Printer::MODE_DOUBLE_HEIGHT);
-                $this->printer->text($qty . "x " . $name . "\n");
+                $this->printer->text($qty . "x " . $item['name'] . "\n");
                 $this->printer->selectPrintMode(Printer::MODE_FONT_A);
-                
                 if (!empty($item['modifiers'])) {
                     foreach ($item['modifiers'] as $mod) {
                         $this->printer->text("  + " . ($mod['name'] ?? $mod) . "\n");
@@ -147,30 +162,31 @@ class PrinterService
 
         if ($showPrice) {
             $global_discount = (float)($meta['OrderDiscount'] ?? 0);
-            $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
-            
+            $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
+
             if ($global_discount > 0) {
-                $this->printer->text($this->columnize("SUBTOTAL", number_format($total, 2)));
-                
-                $disc_label = !empty($meta['DiscountLabel']) ? substr($meta['DiscountLabel'], 0, 20) : "DISCOUNT";
-                $this->printer->text($this->columnize($disc_label, "-" . number_format($global_discount, 2)));
-                
-                if (!empty($meta['OrderDiscountNote'])) {
-                    $this->printer->setJustification(Printer::JUSTIFY_LEFT);
-                    $notes = explode('|', $meta['OrderDiscountNote']);
-                    foreach($notes as $n) {
-                        $this->printer->text("  * " . trim($n) . "\n");
+                // FIX: Grab the pre-calculated split from print_order.php!
+                if ($is_sc_pwd && isset($meta['SC_ItemCount']) && $meta['SC_ItemCount'] > 0) {
+                    if ($meta['Reg_ItemCount'] > 0) {
+                        $this->printer->text($this->columnize($meta['Reg_ItemCount'] . " Reg Item(s)", number_format($meta['Reg_ItemTotal'], 2)));
                     }
+                    $this->printer->text($this->columnize("Senior: " . $meta['SC_ItemCount'] . " Item(s)", number_format($meta['SC_ItemTotal'], 2)));
+                    $this->printer->text($this->columnize("Less " . strtoupper($meta['DiscountLabel']), "-" . number_format($global_discount, 2)));
+                } else {
+                    $this->printer->text($this->columnize($itemCount . " Item(s)", number_format($total, 2)));
+                    $this->printer->text($this->columnize(strtoupper($meta['DiscountLabel']), "-" . number_format($global_discount, 2)));
                 }
                 $total -= $global_discount;
+            } else {
+                $this->printer->text($this->columnize($itemCount . " Item(s)", number_format($total, 2)));
             }
 
             $this->printer->setEmphasis(true);
             $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
             
             $doubleLimit = floor($this->charLimit / 2);
-            $left = "TOTAL";
-            $right = "P" . number_format($total, 2);
+            $left = "TOTAL DUE";
+            $right = number_format($total, 2);
             $spaces = $doubleLimit - strlen($left) - strlen($right);
             if ($spaces < 1) $spaces = 1;
             
@@ -180,15 +196,39 @@ class PrinterService
             $this->printer->selectPrintMode(Printer::MODE_FONT_A); 
 
             if (isset($meta['Tendered']) && isset($meta['Change'])) {
-                $this->printer->feed(1);
-                $this->printer->text($this->columnize("TENDERED", number_format($meta['Tendered'], 2)));
+                $this->printer->text($this->columnize("CASH", number_format($meta['Tendered'], 2)));
                 $this->printer->text($this->columnize("CHANGE", number_format($meta['Change'], 2)));
-                if(isset($meta['Method'])) {
-                    $this->printer->text($this->columnize("METHOD", strtoupper($meta['Method'])));
+            }
+
+            $this->printer->feed(1);
+            $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
+
+            if ($is_sc_pwd) {
+                if (!empty($meta['SC_Records'])) {
+                    foreach ($meta['SC_Records'] as $sc) {
+                        $this->printer->text($sc['discount_type'] . " Name: " . strtoupper($sc['person_name']) . "\n");
+                        $this->printer->text("Govt ID: " . strtoupper($sc['id_number']) . "\n");
+                        
+                        $addr = !empty($sc['address']) ? strtoupper($sc['address']) : "__________________";
+                        $this->printer->text("Address: " . $addr . "\n");
+                        
+                        $this->printer->text("Signature: ________________\n");
+                        $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
+                    }
+                } 
+                else {
+                    $this->printer->text("Name: ____________________\n");
+                    $this->printer->text("Govt ID: _________________\n");
+                    $this->printer->text("Address: __________________\n");
+                    $this->printer->text("Signature: ________________\n");
+                    $this->printer->text(str_repeat("=", $this->charLimit) . "\n");
                 }
-                $this->printer->feed(1);
-                $this->printer->setJustification(Printer::JUSTIFY_CENTER);
-                $this->printer->text("Thank you for dining with us!\n");
+            }
+
+            $this->printer->setJustification(Printer::JUSTIFY_CENTER);
+            $this->printer->text("Thank you for dining with us!\n");
+            
+            if ($title === "RECEIPT") {
                 $this->printer->text("THIS IS NOT YOUR OFFICIAL RECEIPT!\n");
             }
         }
@@ -199,6 +239,10 @@ class PrinterService
             $this->printer->cut();
         } else {
             $this->printer->feed(3);
+        }
+
+        if (($options['beep'] ?? 0) == 1) {
+            $this->connector->write("\x1b\x42\x02\x02");
         }
         $this->printer->close();
     }

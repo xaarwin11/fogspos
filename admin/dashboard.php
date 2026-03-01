@@ -2,6 +2,10 @@
 require_once '../db.php';
 session_start();
 
+// Enable Error Reporting so if something breaks, it tells you WHY instead of a blank screen
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 if (empty($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'manager'])) { 
     header("Location: ../pos/index.php"); 
     exit; 
@@ -17,33 +21,48 @@ $next_date = date('Y-m-d', strtotime($date . ' +1 day'));
 $display_date = date('D, M d, Y', strtotime($date));
 $is_today = ($date === date('Y-m-d'));
 
-// 2. Fetch Gross Sales & Order Count
-$stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales FROM orders WHERE DATE(created_at) = ? AND status = 'paid'");
-$stmt1->bind_param('s', $date);
-$stmt1->execute();
-$sales = $stmt1->get_result()->fetch_assoc();
-$stmt1->close();
+// Safe Default Arrays (Prevents Blank Screen if Queries Fail)
+$sales = ['total_orders' => 0, 'total_sales' => 0];
+$payments = [];
+$shifts = [];
+$orders = [];
 
-// 3. Fetch Tender Breakdown
-$stmt2 = $mysqli->prepare("SELECT method, SUM(amount - change_given) as net_amount FROM payments WHERE DATE(created_at) = ? GROUP BY method");
-$stmt2->bind_param('s', $date);
-$stmt2->execute();
-$payments = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt2->close();
+try {
+    // 2. Fetch Gross Sales & Order Count
+    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales FROM orders WHERE DATE(created_at) = ? AND status = 'paid'")) {
+        $stmt1->bind_param('s', $date);
+        $stmt1->execute();
+        $sales = $stmt1->get_result()->fetch_assoc();
+        $stmt1->close();
+    }
 
-// 4. Fetch Register Shifts (NEW!)
-$stmt_shift = $mysqli->prepare("SELECT r.*, u1.username as opener, u2.username as closer FROM register_shifts r LEFT JOIN users u1 ON r.opened_by = u1.id LEFT JOIN users u2 ON r.closed_by = u2.id WHERE DATE(r.opened_at) = ? ORDER BY r.opened_at DESC");
-$stmt_shift->bind_param('s', $date);
-$stmt_shift->execute();
-$shifts = $stmt_shift->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt_shift->close();
+    // 3. Fetch Tender Breakdown
+    if ($stmt2 = $mysqli->prepare("SELECT method, SUM(amount - change_given) as net_amount FROM payments WHERE DATE(created_at) = ? GROUP BY method")) {
+        $stmt2->bind_param('s', $date);
+        $stmt2->execute();
+        $payments = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt2->close();
+    }
 
-// 5. Fetch Order History Log
-$stmt3 = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE DATE(o.created_at) = ? ORDER BY o.created_at DESC");
-$stmt3->bind_param('s', $date);
-$stmt3->execute();
-$orders = $stmt3->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt3->close();
+    // 4. Fetch Register Shifts (Safely)
+    if ($stmt_shift = $mysqli->prepare("SELECT r.*, u1.username as opener, u2.username as closer FROM register_shifts r LEFT JOIN users u1 ON r.opened_by = u1.id LEFT JOIN users u2 ON r.closed_by = u2.id WHERE DATE(r.opened_at) = ? ORDER BY r.opened_at DESC")) {
+        $stmt_shift->bind_param('s', $date);
+        $stmt_shift->execute();
+        $shifts = $stmt_shift->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_shift->close();
+    }
+
+    // 5. Fetch Order History Log
+    if ($stmt3 = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE DATE(o.created_at) = ? ORDER BY o.created_at DESC")) {
+        $stmt3->bind_param('s', $date);
+        $stmt3->execute();
+        $orders = $stmt3->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt3->close();
+    }
+} catch (Exception $e) {
+    // Instead of a white screen, print the exact SQL error at the top of the page!
+    echo "<div style='background:red; color:white; padding:10px;'>Database Error: " . $e->getMessage() . "</div>";
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -110,13 +129,13 @@ $stmt3->close();
         <div class="stats-grid">
             <div class="stat-card">
                 <h3>Gross Sales</h3>
-                <div class="value">₱<?= number_format($sales['total_sales'], 2) ?></div>
+                <div class="value">₱<?= number_format((float)($sales['total_sales'] ?? 0), 2) ?></div>
                 <div style="font-size:0.9rem; color:gray; margin-top:5px;">For <?= date('F d, Y', strtotime($date)) ?></div>
             </div>
             
             <div class="stat-card">
                 <h3>Completed Orders</h3>
-                <div class="value"><?= $sales['total_orders'] ?></div>
+                <div class="value"><?= $sales['total_orders'] ?? 0 ?></div>
                 <div style="font-size:0.9rem; color:gray; margin-top:5px;">Successfully paid and closed</div>
             </div>
             
@@ -126,9 +145,9 @@ $stmt3->close();
                     <?php foreach($payments as $p): ?>
                         <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #eee; padding-bottom:5px;">
                             <span style="text-transform:capitalize; color:var(--text-muted); font-weight:600;">
-                                <?= $p['method'] === 'cash' ? '💵' : ($p['method'] === 'gcash' ? '📱' : '💳') ?> <?= $p['method'] ?>
+                                <?= $p['method'] === 'cash' ? '💵' : ($p['method'] === 'gcash' ? '📱' : '💳') ?> <?= htmlspecialchars($p['method']) ?>
                             </span>
-                            <span style="font-weight:bold; font-size:1.1rem; color:var(--text-main);">₱<?= number_format($p['net_amount'], 2) ?></span>
+                            <span style="font-weight:bold; font-size:1.1rem; color:var(--text-main);">₱<?= number_format((float)$p['net_amount'], 2) ?></span>
                         </div>
                     <?php endforeach; ?>
                     <?php if(empty($payments)) echo "<span style='color:gray; font-style:italic;'>No payments recorded yet.</span>"; ?>
@@ -154,21 +173,21 @@ $stmt3->close();
                     <tr>
                         <td>
                             <strong><?= date('h:i A', strtotime($s['opened_at'])) ?></strong><br>
-                            <span style="font-size:0.8rem; color:gray;">By <?= $s['opener'] ?></span>
+                            <span style="font-size:0.8rem; color:gray;">By <?= htmlspecialchars($s['opener'] ?? 'Unknown') ?></span>
                         </td>
-                        <td>₱<?= number_format($s['opening_cash'], 2) ?></td>
+                        <td>₱<?= number_format((float)$s['opening_cash'], 2) ?></td>
                         <td>
-                            <?php if($s['status'] === 'open'): ?>
+                            <?php if(isset($s['status']) && $s['status'] === 'open'): ?>
                                 <span class="status-badge status-open">CURRENTLY OPEN</span>
                             <?php else: ?>
-                                <strong><?= date('h:i A', strtotime($s['closed_at'])) ?></strong><br>
-                                <span style="font-size:0.8rem; color:gray;">By <?= $s['closer'] ?></span>
+                                <strong><?= date('h:i A', strtotime($s['closed_at'] ?? 'now')) ?></strong><br>
+                                <span style="font-size:0.8rem; color:gray;">By <?= htmlspecialchars($s['closer'] ?? 'Unknown') ?></span>
                             <?php endif; ?>
                         </td>
-                        <td><?= $s['expected_cash'] ? '₱'.number_format($s['expected_cash'], 2) : '-' ?></td>
-                        <td><?= $s['actual_cash'] ? '₱'.number_format($s['actual_cash'], 2) : '-' ?></td>
+                        <td><?= isset($s['expected_cash']) ? '₱'.number_format((float)$s['expected_cash'], 2) : '-' ?></td>
+                        <td><?= isset($s['actual_cash']) ? '₱'.number_format((float)$s['actual_cash'], 2) : '-' ?></td>
                         <td>
-                            <?php if($s['variance'] !== null): ?>
+                            <?php if(isset($s['variance'])): ?>
                                 <?php if($s['variance'] < 0): ?>
                                     <strong style="color:red;">Short ₱<?= number_format(abs($s['variance']), 2) ?></strong>
                                 <?php elseif($s['variance'] > 0): ?>
@@ -206,14 +225,17 @@ $stmt3->close();
                         <td><strong>#<?= $o['id'] ?></strong></td>
                         <td><?= date('h:i A', strtotime($o['created_at'])) ?></td>
                         <td style="text-transform:capitalize; font-weight:500;">
-                            <?= $o['order_type'] === 'takeout' ? '🥡 Takeout' : '🍽️ Table ' . $o['table_number'] ?>
+                            <?= $o['order_type'] === 'takeout' ? '🥡 Takeout' : '🍽️ Table ' . htmlspecialchars($o['table_number'] ?? 'N/A') ?>
                         </td>
-                        <td><span class="status-badge status-<?= $o['status'] ?>"><?= $o['status'] ?></span></td>
-                        <td style="font-weight:bold; color:var(--brand); font-size:1.1rem;">₱<?= number_format($o['grand_total'], 2) ?></td>
+                        <td><span class="status-badge status-<?= htmlspecialchars($o['status'] ?? 'open') ?>"><?= htmlspecialchars($o['status'] ?? 'OPEN') ?></span></td>
+                        <td style="font-weight:bold; color:var(--brand); font-size:1.1rem;">₱<?= number_format((float)$o['grand_total'], 2) ?></td>
                         <td>
                             <div style="display:flex; gap:5px;">
                                 <button onclick="viewOrderDetails(<?= $o['id'] ?>)" style="background:#005ce6; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold;">📄 Details</button>
-                                <?php if($o['status'] === 'paid'): ?>
+                                
+                                <button onclick="reprintOrder(<?= $o['id'] ?>)" style="background:#4b5563; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold;">🖨️ Print</button>
+                                
+                                <?php if(isset($o['status']) && $o['status'] === 'paid'): ?>
                                     <button onclick="refundOrder(<?= $o['id'] ?>, <?= $o['grand_total'] ?>)" style="background:#c62828; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold;">Refund</button>
                                 <?php endif; ?>
                             </div>
@@ -229,6 +251,21 @@ $stmt3->close();
     </div>
 
     <script>
+        async function reprintOrder(orderId) {
+            Swal.fire({title: 'Printing...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+            try {
+                const res = await fetch(`../api/print_order.php?order_id=${orderId}&type=receipt`);
+                const data = await res.json();
+                if (data.success) {
+                    Swal.fire({icon: 'success', title: 'Printed!', timer: 1000, showConfirmButton: false});
+                } else {
+                    Swal.fire('Print Failed', data.message || data.error || 'Unknown error', 'error');
+                }
+            } catch (e) {
+                Swal.fire('Error', 'Could not reach printer service.', 'error');
+            }
+        }
+
         async function refundOrder(orderId, amount) {
             const { value: formValues } = await Swal.fire({
                 title: `Refund Order #${orderId}`,
@@ -264,6 +301,7 @@ $stmt3->close();
                 } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
             }
         }
+        
         async function viewOrderDetails(orderId) {
             try {
                 Swal.fire({title: 'Loading...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
@@ -284,7 +322,13 @@ $stmt3->close();
                 html += `<div><strong>Type:</strong> ${o.order_type.toUpperCase()} ${o.table_number ? '(Table '+o.table_number+')' : ''}</div>`;
                 if (o.customer_name) html += `<div><strong>Customer:</strong> ${o.customer_name}</div>`;
                 if (o.cashier) html += `<div><strong>Cashier:</strong> ${o.cashier}</div>`;
-                html += `<div><strong>Status:</strong> <span style="text-transform:uppercase; font-weight:bold; color:${o.status === 'paid' ? 'green' : (o.status === 'refunded' ? 'red' : 'orange')}">${o.status}</span></div>`;
+                html += `<div><strong>Status:</strong> <span style="text-transform:uppercase; font-weight:bold; color:${o.status === 'paid' ? 'green' : (o.status === 'refunded' ? 'red' : (o.status === 'voided' ? '#c62828' : 'orange'))}">${o.status}</span></div>`;
+                
+                // Dynamically display the void reason if it exists!
+                if (o.void_reason) {
+                    html += `<div style="margin-top: 5px; padding: 5px; background: #ffebee; border-left: 3px solid #c62828;"><strong>Reason:</strong> <span style="color:#c62828; font-weight:bold;">${o.void_reason}</span></div>`;
+                }
+
                 html += `<hr style="border-top:1px dashed #ccc; margin:15px 0;">`;
                 
                 // Items Loop
@@ -313,12 +357,12 @@ $stmt3->close();
                 html += `<div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2rem; margin-top:10px; color:var(--brand);"><span>Grand Total:</span> <span>₱${parseFloat(o.grand_total).toFixed(2)}</span></div>`;
                 
                 // Payments
-                if (data.payments.length > 0) {
+                if (data.payments && data.payments.length > 0) {
                     html += `<hr style="border-top:1px dashed #ccc; margin:15px 0;">`;
                     html += `<div style="margin-bottom:5px;"><strong>Tender Details:</strong></div>`;
                     data.payments.forEach(p => {
                         let isRefund = parseFloat(p.amount) < 0;
-                        html += `<div style="display:flex; justify-content:space-between; ${isRefund ? 'color:#c62828;' : ''}"><span>${p.method.toUpperCase()} ${isRefund ? 'Refunded' : 'Tendered'}:</span> <span>₱${parseFloat(p.amount).toFixed(2)}</span></div>`;
+                        html += `<div style="display:flex; justify-content:space-between; ${isRefund ? 'color:#c62828;' : ''}"><span>${p.method.toUpperCase()} ${isRefund ? 'Refunded' : 'Tendered'}:</span> <span>₱${parseFloat(Math.abs(p.amount)).toFixed(2)}</span></div>`;
                         if (parseFloat(p.change_given) > 0) {
                             html += `<div style="display:flex; justify-content:space-between; color:green;"><span>Change Given:</span> <span>₱${parseFloat(p.change_given).toFixed(2)}</span></div>`;
                         }
@@ -331,9 +375,16 @@ $stmt3->close();
                     title: false,
                     html: html,
                     width: 450,
+                    showDenyButton: true,
                     confirmButtonColor: '#6B4226',
-                    confirmButtonText: 'Close Receipt',
+                    denyButtonColor: '#4b5563',
+                    confirmButtonText: 'Close',
+                    denyButtonText: '🖨️ Print Receipt',
                     showClass: { popup: 'animate__animated animate__fadeInUp animate__faster' }
+                }).then((result) => {
+                    if (result.isDenied) {
+                        reprintOrder(orderId);
+                    }
                 });
                 
             } catch(e) { 

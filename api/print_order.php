@@ -30,7 +30,7 @@ try {
     $sql = "
         SELECT 
             oi.id as order_item_id, oi.quantity, oi.kitchen_printed,
-            p.name as product_name, pv.name as variation_name,
+            p.name as product_name, pv.name as variation_name, p.category_id,
             c.cat_type, oi.base_price, oi.modifier_total, oi.discount_amount, oi.discount_note
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
@@ -45,7 +45,7 @@ try {
 
     if (empty($rows)) throw new Exception("No items found for this order.");
 
-    // FIX 1: Fetch ALL modifiers for this order efficiently in one go!
+    // FETCH ALL MODIFIERS
     $mod_sql = "SELECT order_item_id, name FROM order_item_modifiers WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)";
     $mod_stmt = $mysqli->prepare($mod_sql);
     $mod_stmt->bind_param("i", $order_id);
@@ -57,7 +57,6 @@ try {
         $mods_by_item[$m['order_item_id']][] = ['name' => $m['name']];
     }
 
-    // Attach modifiers directly to the items
     foreach ($rows as &$r) {
         $r['modifiers'] = $mods_by_item[$r['order_item_id']] ?? [];
     }
@@ -90,8 +89,51 @@ try {
         $discount_label = "DISC (" . strtoupper(trim($ext)) . ")";
     }
 
+    $sc_query = "SELECT discount_type, person_name, id_number, address FROM order_sc_pwd WHERE order_id = ?";
+    $sc_stmt = $mysqli->prepare($sc_query);
+    $sc_stmt->bind_param("i", $order_id);
+    $sc_stmt->execute();
+    $sc_records = $sc_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    // =========================================================
+    // FIX: RE-CALCULATE SENIOR ITEM SPLIT FOR THE PRINTER
+    // =========================================================
+    $sc_item_count = 0; $sc_item_total = 0;
+    $reg_item_count = 0; $reg_item_total = 0;
+    $total_qty = 0; $raw_grand = 0;
+
+    foreach ($rows as $r) {
+        $total_qty += (int)$r['quantity'];
+        $raw_grand += ((float)$r['base_price'] + (float)$r['modifier_total']) * (int)$r['quantity'];
+    }
+
+    if (!empty($sc_records) || (!empty($order_meta['discount_note']) && stripos($order_meta['discount_note'], 'SC/PWD') !== false)) {
+        $discount_label = "SC DISCOUNT";
+        
+        $food_items = []; $drink_items = [];
+        foreach ($rows as $oi) {
+            if ($oi['category_id'] == 7) continue; // Exclude alcohol
+            for ($i=0; $i < (int)$oi['quantity']; $i++) { 
+                $price = (float)$oi['base_price'] + (float)$oi['modifier_total'];
+                if ($oi['cat_type'] === 'drink') { $drink_items[] = $price; } 
+                else { $food_items[] = $price; }
+            }
+        }
+        rsort($food_items); rsort($drink_items); // Sort highest price first
+        
+        $s_count = count($sc_records) > 0 ? count($sc_records) : 1;
+        $applicable = array_merge(array_slice($food_items, 0, $s_count), array_slice($drink_items, 0, $s_count));
+        
+        foreach($applicable as $price) {
+            $sc_item_count++;
+            $sc_item_total += $price;
+        }
+        $reg_item_count = $total_qty - $sc_item_count;
+        $reg_item_total = $raw_grand - $sc_item_total;
+    }
+
     $meta = [
-        'Store'   => $biz['store_name'] ?? 'FOGS RESTAURANT',
+        'Store'   => $biz['store_name'] ?? "FogsTasa's Cafe",
         'Address' => $biz['store_address'] ?? '',
         'Phone'   => $biz['store_phone'] ?? '',
         'Type'    => strtoupper($order_meta['order_type'] ?? 'DINE_IN'),
@@ -100,9 +142,15 @@ try {
         'Date'    => date('M d, Y h:i A'),
         'Ref'     => $order_meta['reference'],
         'Customer'=> $order_meta['customer_name'],
-        'OrderDiscount' => $order_meta['discount_total'],
+        'OrderDiscount' => (float)$order_meta['discount_total'],
         'OrderDiscountNote' => $order_meta['discount_note'],
-        'DiscountLabel' => $discount_label
+        'DiscountLabel' => $discount_label,
+        'SC_Records' => $sc_records,
+        // Hand the pre-calculated split to the printer!
+        'SC_ItemCount' => $sc_item_count,
+        'SC_ItemTotal' => $sc_item_total,
+        'Reg_ItemCount' => $reg_item_count,
+        'Reg_ItemTotal' => $reg_item_total
     ];
 
     if ($type === 'receipt') {
@@ -196,3 +244,4 @@ try {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
+?>

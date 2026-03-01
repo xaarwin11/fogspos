@@ -475,3 +475,12 @@ nav {
         grid-column: span 2 !important; /* Make Charge button span the whole width */
     }
 }
+/* Premium Popup Variations */
+.var-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.var-btn { 
+    border: 2px solid var(--border); background: white; padding: 15px 10px; 
+    border-radius: 12px; font-weight: bold; cursor: pointer; 
+    color: var(--text-main); text-align: center; transition: 0.2s;
+}
+.var-btn.active { border-color: var(--brand); background: var(--bg-dark); color: var(--brand); }
+.var-btn .price { display: block; font-size: 0.85rem; color: var(--brand); margin-top: 5px; }

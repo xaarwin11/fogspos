@@ -28,6 +28,20 @@ try {
     $paid_res = $mysqli->query("SELECT COALESCE(SUM(amount - change_given), 0) as total_paid FROM payments WHERE order_id = $order_id");
     $order['amount_paid'] = (float)$paid_res->fetch_assoc()['total_paid'];
 
+    // ==============================================================================
+    // FIX #3: FETCH SENIOR DETAILS SO THE POS TABLET DOESN'T FORGET THEM ON RELOAD!
+    // ==============================================================================
+    $sc_stmt = $mysqli->prepare("SELECT discount_type as type, person_name as name, id_number as id, address FROM order_sc_pwd WHERE order_id = ?");
+    $sc_stmt->bind_param('i', $order_id);
+    $sc_stmt->execute();
+    $sc_res = $sc_stmt->get_result();
+    $senior_details = [];
+    while($sc = $sc_res->fetch_assoc()) {
+        $senior_details[] = $sc;
+    }
+    $order['senior_details'] = $senior_details;
+    $sc_stmt->close();
+
     $items_stmt = $mysqli->prepare("SELECT * FROM order_items WHERE order_id = ?");
     $items_stmt->bind_param('i', $order_id);
     $items_stmt->execute();
@@ -53,3 +67,4 @@ try {
     echo json_encode(['success' => true, 'order_id' => $order_id, 'order_info' => $order, 'items' => $cart]);
     exit;
 } catch (Exception $e) { http_response_code(500); echo json_encode(['success' => false, 'error' => $e->getMessage()]); }
+?>

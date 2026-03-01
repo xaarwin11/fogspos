@@ -8,7 +8,6 @@ error_reporting(E_ALL);
 
 if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
 
-// Security Fix #3: CSRF Check
 $headers = getallheaders();
 $csrf_token = $headers['X-CSRF-Token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (empty($csrf_token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_token)) {
@@ -47,7 +46,7 @@ try {
         $order_id = $mysqli->insert_id;
         $stmt->close();
         
-        $ref_number = date('ym') . str_pad($order_id, 4, '0', STR_PAD_LEFT);
+        $ref_number = date('ym') . str_pad($order_id, 3, '0', STR_PAD_LEFT);
         $r_stmt = $mysqli->prepare("UPDATE orders SET reference = ? WHERE id = ?");
         $r_stmt->bind_param('si', $ref_number, $order_id);
         $r_stmt->execute();
@@ -57,6 +56,21 @@ try {
         $c_stmt->bind_param('si', $customer_name, $order_id);
         $c_stmt->execute();
         $c_stmt->close();
+    }
+
+    $mysqli->query("DELETE FROM order_sc_pwd WHERE order_id = $order_id");
+    
+    if (!empty($senior_details) && is_array($senior_details)) {
+        $sc_stmt = $mysqli->prepare("INSERT INTO order_sc_pwd (order_id, discount_type, person_name, id_number, address) VALUES (?, ?, ?, ?, ?)");
+        foreach ($senior_details as $sc) {
+            $type = $sc['type'] ?? 'SC';
+            $name = $sc['name'] ?? '';
+            $id_num = $sc['id'] ?? '';
+            $address = $sc['address'] ?? '';
+            $sc_stmt->bind_param("issss", $order_id, $type, $name, $id_num, $address);
+            $sc_stmt->execute();
+        }
+        $sc_stmt->close();
     }
 
     $existing_map = [];
@@ -91,19 +105,15 @@ try {
 
     $processed_ids = [];
 
+    // ONLY MANUAL ITEM-LEVEL DISCOUNTS APPLY HERE NOW
     foreach ($items as $item) {
         $p_id = (int)$item['id']; $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; $qty = (int)$item['qty'];
         $item_disc_amt = !empty($item['discount_amount']) ? (float)$item['discount_amount'] : 0.00;
         $item_disc_note = !empty($item['discount_note']) ? $item['discount_note'] : null;
-        
-        if ($item_disc_note && (strpos($item_disc_note, 'SC') !== false || strpos($item_disc_note, 'PWD') !== false || strpos($item_disc_note, 'Auto:') !== false)) {
-            $item_disc_amt = 0.00; $item_disc_note = null; 
-        }
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
         $key = $p_id . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids);
 
-        // Fetch Prices Securely
         $base_p = 0; $p_name = ''; $v_name = null;
         $get_prod->bind_param('i', $p_id); $get_prod->execute();
         if ($p_data = $get_prod->get_result()->fetch_assoc()) { $base_p = (float)$p_data['price']; $p_name = $p_data['name']; }
@@ -148,7 +158,6 @@ try {
         }
     }
 
-    // PHASE 2: ADVANCED GLOBAL DISCOUNT MATH
     $global_discount_amount = 0;
     $EXCLUDED_CATEGORY_ID = 7; 
     
@@ -158,10 +167,11 @@ try {
     $db_items = $oi_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $oi_stmt->close();
 
-    $upd_disc_stmt = $mysqli->prepare("UPDATE order_items SET discount_amount = discount_amount + ?, discount_note = CONCAT_WS(' | ', discount_note, ?), line_total = line_total - ? WHERE id = ?");
-
+    // ====================================================================
+    // GLOBAL DISCOUNTS NOW CALCULATE IN MEMORY (NO DATABASE INJECTIONS)
+    // ====================================================================
     if ($discount_id) {
-        $d_stmt = $mysqli->prepare("SELECT type, value, target_type, name FROM discounts WHERE id = ?");
+        $d_stmt = $mysqli->prepare("SELECT type, value, target_type, target_categories, name FROM discounts WHERE id = ?");
         $d_stmt->bind_param('i', $discount_id);
         $d_stmt->execute();
         $d_data = $d_stmt->get_result()->fetch_assoc();
@@ -187,43 +197,40 @@ try {
                 $senior_count = count($senior_details) > 0 ? count($senior_details) : 1;
                 $applicable = array_merge(array_slice($food_items, 0, $senior_count), array_slice($drink_items, 0, $senior_count));
                 
-                $discount_updates = []; $global_senior_names = []; 
                 foreach($applicable as $index => $it) {
                     $amt = ($d_data['type'] === 'percent') ? $it['price'] * $multiplier : $disc_val;
-                    $s_idx = $index % $senior_count;
-                    $s_type = !empty($senior_details[$s_idx]['type']) ? $senior_details[$s_idx]['type'] : 'SC';
-                    $s_name = !empty($senior_details[$s_idx]['name']) ? $senior_details[$s_idx]['name'] : 'Guest';
-                    $s_id   = !empty($senior_details[$s_idx]['id']) ? $senior_details[$s_idx]['id'] : 'Unknown ID';
-                    
-                    $global_senior_names[] = "$s_type: $s_name (ID: $s_id)";
-                    if(!isset($discount_updates[$it['id']])) $discount_updates[$it['id']] = ['amount' => 0, 'names' => []];
-                    $discount_updates[$it['id']]['amount'] += $amt;
-                    $discount_updates[$it['id']]['names'][] = "$s_type [$s_name]";
+                    $global_discount_amount += $amt;
                 }
-                
-                foreach($discount_updates as $oid => $dup) {
-                    $amt = $dup['amount']; $note_str = implode(', ', $dup['names']);
-                    $upd_disc_stmt->bind_param('dsdi', $amt, $note_str, $amt, $oid);
-                    $upd_disc_stmt->execute();
-                }
-                $discount_note = implode('|', array_unique($global_senior_names));
+                $discount_note = null; 
             } else {
                 $subtotal_applicable = 0;
+                $target = $d_data['target_type'] ?? 'all';
+                $target_cats = !empty($d_data['target_categories']) ? json_decode($d_data['target_categories'], true) : [];
+
                 foreach ($db_items as $oi) {
                     if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue;
-                    $subtotal_applicable += (float)$oi['line_total'];
+                    
+                    $match = false;
+                    if ($target === 'all') $match = true;
+                    else if ($target === 'food' && $oi['cat_type'] === 'food') $match = true;
+                    else if ($target === 'drink' && $oi['cat_type'] === 'drink') $match = true;
+                    else if ($target === 'specific' && is_array($target_cats) && in_array($oi['category_id'], $target_cats)) $match = true;
+
+                    if ($match) {
+                        $subtotal_applicable += (float)$oi['line_total'];
+                    }
                 }
                 $global_discount_amount = ($d_data['type'] === 'percent') ? $subtotal_applicable * $multiplier : $disc_val;
+                $discount_note = null; 
             }
         }
     } else if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
-        // FIX #1: Added safety fallbacks so missing data never crashes the math
         $c_type = $custom_discount['type'] ?? 'amount';
         $c_val = (float)($custom_discount['val'] ?? 0);
         $c_target = $custom_discount['target'] ?? 'all';
         $c_note = $custom_discount['note'] ?? 'Custom';
         
-        $target_subtotal = 0; $discount_updates = [];
+        $target_subtotal = 0; 
 
         foreach ($db_items as $it) {
             if ($it['category_id'] == $EXCLUDED_CATEGORY_ID) continue; 
@@ -237,30 +244,17 @@ try {
             if ($match) {
                 $item_raw_total = (float)$it['unit_price'] * (int)$it['quantity'];
                 $target_subtotal += $item_raw_total;
-                if ($c_type === 'percent') {
-                    $deduction = $item_raw_total * ($c_val / 100);
-                    if(!isset($discount_updates[$it['id']])) $discount_updates[$it['id']] = ['amount' => 0];
-                    $discount_updates[$it['id']]['amount'] += $deduction;
-                }
             }
         }
 
         if ($c_type === 'percent') {
-            foreach($discount_updates as $oid => $dup) {
-                $amt = $dup['amount']; 
-                $note_str = 'Auto: ' . $c_note;
-                $upd_disc_stmt->bind_param('dsdi', $amt, $note_str, $amt, $oid);
-                $upd_disc_stmt->execute();
-            }
-            $discount_note = "Custom: $c_note";
+            $global_discount_amount = $target_subtotal * ($c_val / 100);
         } else {
             $global_discount_amount = min($c_val, $target_subtotal);
-            // FIX #2: Ensured flat amounts are properly prefixed with "Custom: "
-            $discount_note = "Custom: $c_note";
         }
+        $discount_note = "Custom: $c_note";
     }
     
-    // PHASE 3: FINAL MATH
     $sum_stmt = $mysqli->prepare("SELECT COALESCE(SUM((base_price + modifier_total) * quantity), 0) as raw_sub, COALESCE(SUM(line_total), 0) as discounted_sub FROM order_items WHERE order_id = ?");
     $sum_stmt->bind_param('i', $order_id);
     $sum_stmt->execute();
@@ -284,3 +278,4 @@ try {
     if (isset($mysqli)) $mysqli->rollback();
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
+?>
