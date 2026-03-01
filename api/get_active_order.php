@@ -61,7 +61,9 @@ try {
         $cart[] = [
             'id' => (int)$row['product_id'], 'variation_id' => $row['variation_id'] ? (int)$row['variation_id'] : null,
             'name' => $display_name, 'price' => (float)$row['base_price'], 'qty' => (int)$row['quantity'],
-            'discount_amount' => (float)$row['discount_amount'], 'discount_note' => $row['discount_note'], 'modifiers' => $modifiers
+            'discount_amount' => (float)$row['discount_amount'], 'discount_note' => $row['discount_note'], 
+            'item_notes' => $row['item_notes'], /* <--- NEW: Grab notes from DB! */
+            'modifiers' => $modifiers
         ];
     }
     echo json_encode(['success' => true, 'order_id' => $order_id, 'order_info' => $order, 'items' => $cart]);

@@ -31,7 +31,7 @@ try {
         SELECT 
             oi.id as order_item_id, oi.quantity, oi.kitchen_printed,
             p.name as product_name, pv.name as variation_name, p.category_id,
-            c.cat_type, oi.base_price, oi.modifier_total, oi.discount_amount, oi.discount_note
+            c.cat_type, oi.base_price, oi.modifier_total, oi.discount_amount, oi.discount_note, oi.item_notes
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         JOIN categories c ON p.category_id = c.id
@@ -173,7 +173,8 @@ try {
             $formatted = [
                 'quantity'  => $qty_to_print,
                 'name'      => $r['product_name'] . ($r['variation_name'] ? " ({$r['variation_name']})" : ""),
-                'modifiers' => $r['modifiers']
+                'modifiers' => $r['modifiers'],
+                'item_notes'=> $r['item_notes'] // <--- Send to Kitchen Printer!
             ];
 
             if ($r['cat_type'] === 'drink') { $bar_items[] = $formatted; } 
@@ -223,7 +224,8 @@ try {
                     'price'    => (float)$r['base_price'] + (float)$r['modifier_total'],
                     'modifiers'=> $r['modifiers'],
                     'discount_amount' => (float)$r['discount_amount'],
-                    'discount_note' => $r['discount_note']
+                    'discount_note' => $r['discount_note'],
+                    'item_notes' => $r['item_notes'] // <--- Send to Receipt Printer!
                 ];
             }
 

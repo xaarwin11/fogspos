@@ -45,7 +45,10 @@ try {
 
         // If lockout expired, reset attempts
         if ($minutes_since_last >= $lockout_minutes) {
-            $mysqli->query("UPDATE login_attempts SET attempts = 0 WHERE ip_address = '$ip_address'");
+            $reset_stmt = $mysqli->prepare("UPDATE login_attempts SET attempts = 0 WHERE ip_address = ?");
+            $reset_stmt->bind_param("s", $ip_address);
+            $reset_stmt->execute();
+            $reset_stmt->close();
         }
     }
     $limit_stmt->close();

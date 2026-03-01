@@ -157,31 +157,26 @@ async function manageRegister() {
 
                     Swal.fire({
                         title: 'Register Closed', html: msg, icon: icon,
-                        confirmButtonText: 'Print Z-Report'
-                    }).then(() => {
-                        Swal.fire({
-                            title: 'Register Closed', html: msg, icon: icon,
-                            showCancelButton: true,
-                            confirmButtonText: '🖨️ Print Z-Report',
-                            cancelButtonText: 'Done',
-                            confirmButtonColor: '#2e7d32'
-                        }).then(async (result) => {
-                            // THIS ACTUALLY TRIGGERS THE PRINTER
-                            if (result.isConfirmed) {
-                                Swal.fire({title: 'Printing to Register...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
-                                try {
-                                    const pRes = await fetch('../api/print_zreport.php');
-                                    const pData = await pRes.json();
-                                    if (pData.success) {
-                                        Swal.fire({icon: 'success', title: 'Z-Report Printed!', timer: 1500, showConfirmButton: false});
-                                    } else {
-                                        Swal.fire('Print Failed', pData.error, 'error');
-                                    }
-                                } catch(e) { 
-                                    Swal.fire('Error', 'Could not reach printer service.', 'error'); 
+                        showCancelButton: true,
+                        confirmButtonText: '🖨️ Print Z-Report',
+                        cancelButtonText: 'Done',
+                        confirmButtonColor: '#2e7d32'
+                    }).then(async (result) => {
+                        // THIS ACTUALLY TRIGGERS THE PRINTER
+                        if (result.isConfirmed) {
+                            Swal.fire({title: 'Printing to Register...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+                            try {
+                                const pRes = await fetch('../api/print_zreport.php');
+                                const pData = await pRes.json();
+                                if (pData.success) {
+                                    Swal.fire({icon: 'success', title: 'Z-Report Printed!', timer: 1500, showConfirmButton: false});
+                                } else {
+                                    Swal.fire('Print Failed', pData.error, 'error');
                                 }
+                            } catch(e) { 
+                                Swal.fire('Error', 'Could not reach printer service.', 'error'); 
                             }
-                        });
+                        }
                     });
                 } else Swal.fire('Error', closeData.error, 'error');
             }

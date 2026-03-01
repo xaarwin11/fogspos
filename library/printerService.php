@@ -141,13 +141,19 @@ class PrinterService
             $itemCount += $qty;
             
             if ($showPrice) {
+                // REGULAR CUSTOMER RECEIPT VIEW
                 $this->printer->text($this->columnize($qty . " " . $name, $priceStr));
                 if (!empty($item['modifiers'])) {
                     foreach ($item['modifiers'] as $mod) {
                         $this->printer->text("  + " . ($mod['name'] ?? $mod) . "\n");
                     }
                 }
+                // Print note subtly on customer bill
+                if (!empty($item['item_notes'])) {
+                    $this->printer->text("  * Note: " . $item['item_notes'] . "\n");
+                }
             } else {
+                // KITCHEN TICKET VIEW
                 $this->printer->selectPrintMode(Printer::MODE_DOUBLE_HEIGHT);
                 $this->printer->text($qty . "x " . $item['name'] . "\n");
                 $this->printer->selectPrintMode(Printer::MODE_FONT_A);
@@ -156,6 +162,14 @@ class PrinterService
                         $this->printer->text("  + " . ($mod['name'] ?? $mod) . "\n");
                     }
                 }
+                
+                // Print Note in BOLD AND CAPS for the Chef!
+                if (!empty($item['item_notes'])) {
+                    $this->printer->setEmphasis(true);
+                    $this->printer->text("  *** NOTE: " . strtoupper($item['item_notes']) . " ***\n");
+                    $this->printer->setEmphasis(false);
+                }
+                
                 $this->printer->text(str_repeat("-", $this->charLimit) . "\n"); 
             }
         }

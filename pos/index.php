@@ -113,7 +113,7 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
         🛒 View Cart & Pay
     </button>
     
-    <script src="../assets/js/pos.js?v=<?php echo time(); ?>"></script>
+    <script src="../assets/js/pos.js?v=<?= filemtime('../assets/js/pos.js') ?>"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             initPOS();
