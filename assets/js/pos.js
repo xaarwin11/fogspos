@@ -44,13 +44,40 @@ function renderProducts() {
     if (!con) return;
     const term = document.getElementById('search') ? document.getElementById('search').value.toLowerCase() : '';
     con.innerHTML = '';
+    
     const filtered = state.products.filter(p => (state.currentCategory === 'All' || p.category_name === state.currentCategory) && p.name.toLowerCase().includes(term));
-    filtered.forEach(p => {
-        const el = document.createElement('div'); el.className = 'product-card';
-        el.innerHTML = `<div>${p.name}</div><div style="color:var(--brand)">₱${parseFloat(p.price).toFixed(2)}</div>`;
-        el.onclick = () => handleProductSelection(p);
-        con.appendChild(el);
-    });
+    
+    // THE UPGRADE: Group items by category with headers if viewing "All"
+    if (state.currentCategory === 'All' && term === '') {
+        state.categories.forEach(cat => {
+            const catProducts = filtered.filter(p => p.category_name === cat.name);
+            
+            if (catProducts.length > 0) {
+                // 1. Inject a beautiful Section Header
+                const header = document.createElement('div');
+                header.style = "grid-column: 1 / -1; font-weight: 800; color: var(--brand); text-transform: uppercase; margin-top: 15px; border-bottom: 2px solid var(--border); padding-bottom: 5px; font-size: 1.1rem; letter-spacing: 1px;";
+                header.innerText = "☕ " + cat.name; // You can change the emoji!
+                con.appendChild(header);
+                
+                // 2. Render the products under this header
+                catProducts.forEach(p => {
+                    const el = document.createElement('div'); el.className = 'product-card';
+                    el.innerHTML = `<div>${p.name}</div><div style="color:var(--brand)">₱${parseFloat(p.price).toFixed(2)}</div>`;
+                    el.onclick = () => handleProductSelection(p);
+                    con.appendChild(el);
+                });
+            }
+        });
+    } 
+    // Normal rendering for searching or viewing a single category tab
+    else {
+        filtered.forEach(p => {
+            const el = document.createElement('div'); el.className = 'product-card';
+            el.innerHTML = `<div>${p.name}</div><div style="color:var(--brand)">₱${parseFloat(p.price).toFixed(2)}</div>`;
+            el.onclick = () => handleProductSelection(p);
+            con.appendChild(el);
+        });
+    }
 }
 
 async function handleProductSelection(p) {
@@ -835,3 +862,111 @@ function toggleCartDrawer() {
                 btn.innerHTML = '⚙️'; // Changes back to the gear
             }
         }
+// ============================================================================
+// ORDER SPLITTING LOGIC (Generates separate physical receipts)
+// ============================================================================
+window.splitOrderPopup = async function() {
+    if (!state.activeOrderId || state.activeOrderId === 'new') return Swal.fire('Save First', 'Please save the order before splitting.', 'warning');
+    
+    let totalItems = state.cart.reduce((sum, i) => sum + i.qty, 0);
+    if (totalItems < 2) return Swal.fire('Error', 'Not enough items to split. You need at least 2 items.', 'warning');
+
+    let html = `<div style="text-align:left; max-height:350px; overflow-y:auto; padding:5px;">`;
+    html += `<div style="font-size:0.9rem; color:gray; margin-bottom:15px;">Select how many items to move to a separate receipt. The new receipt will be created as a <b>Takeout</b> order.</div>`;
+    
+    state.cart.forEach((item, idx) => {
+        html += `
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #ddd; padding:12px 0;">
+                <div style="flex:1; line-height:1.2; padding-right:10px;">
+                    <div style="font-weight:bold; font-size:1rem;">${item.name}</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted);">Current Table: ${item.qty}</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; background:#f3f4f6; padding:6px; border-radius:30px;">
+                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.05);" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
+                    
+                    <input type="number" id="sqty_${idx}" value="0" min="0" max="${item.qty}" style="width:30px; text-align:center; background:transparent; border:none; font-weight:bold; font-size:1.2rem; color:var(--brand);" readonly>
+                    
+                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.05);" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
+                </div>
+            </div>
+        `;
+    });
+    html += `</div>`;
+
+    const { value: proceed } = await Swal.fire({
+        title: '✂️ Split Receipt',
+        html: html,
+        showCancelButton: true,
+        confirmButtonText: 'Move to New Receipt',
+        confirmButtonColor: '#6B4226',
+        width: 500,
+        preConfirm: () => {
+            let toMove = [];
+            let keepCart = [];
+            let totalMoved = 0;
+            
+            // FIX: Do ALL the math here before the popup closes!
+            state.cart.forEach((item, idx) => {
+                let moveQty = parseInt(document.getElementById(`sqty_${idx}`).value) || 0;
+                
+                // 1. Build the Moved Array
+                if (moveQty > 0) {
+                    totalMoved += moveQty;
+                    let clonedMove = JSON.parse(JSON.stringify(item));
+                    clonedMove.qty = moveQty;
+                    clonedMove.discount_amount = 0; 
+                    clonedMove.discount_note = '';
+                    toMove.push(clonedMove);
+                }
+                
+                // 2. Build the Kept Array
+                let keepQty = item.qty - moveQty;
+                if (keepQty > 0) {
+                    let clonedKeep = JSON.parse(JSON.stringify(item));
+                    clonedKeep.qty = keepQty;
+                    keepCart.push(clonedKeep);
+                }
+            });
+            
+            if (totalMoved === 0) { Swal.showValidationMessage('Select at least one item to move.'); return false; }
+            if (totalMoved === totalItems) { Swal.showValidationMessage('You cannot move everything. Use the "Move Table" button instead.'); return false; }
+            
+            // Return both arrays together
+            return { toMove: toMove, keepCart: keepCart };
+        }
+    });
+
+    if (proceed) {
+        Swal.fire({title: 'Splitting...', text: 'Updating databases', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+        
+        let originalTableName = document.getElementById('tableName').innerText;
+        
+        // 1. Save current table with the remaining items
+        state.cart = proceed.keepCart;
+        await window.saveOrder(true);
+        
+        // 2. Setup and save the brand new Takeout order with the moved items!
+        state.mode = 'takeout';
+        state.activeTableId = null;
+        state.activeOrderId = 'new';
+        state.customer_name = originalTableName + ' (Split)';
+        state.cart = proceed.toMove; 
+        state.discount_id = null; state.discount_note = ''; state.senior_details = []; state.custom_discount = {is_active:false}; state.amount_paid = 0;
+        
+        await window.saveOrder(true);
+        
+        Swal.fire({
+            icon: 'success', 
+            title: 'Split Successful!', 
+            text: `The items were successfully moved to Takeout under "${state.customer_name}".`,
+            confirmButtonText: 'Open New Receipt',
+            confirmButtonColor: '#2e7d32'
+        });
+        
+        // Update UI toggles to reflect the new state
+        document.getElementById('btnDineIn').classList.remove('active');
+        document.getElementById('btnTakeout').classList.add('active');
+        document.getElementById('tableName').innerText = 'Takeout: ' + state.customer_name;
+        renderCart();
+    }
+};

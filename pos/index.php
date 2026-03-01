@@ -98,6 +98,9 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
                         <button class="btn secondary" onclick="printOrder('kitchen', event)">🖨️ Send</button>
                         <button class="btn secondary" onclick="printOrder('bill', event)">📄 Bill</button>
                         <button class="btn secondary" onclick="applyDiscountPopup()">🏷️ Disc</button>
+                        
+                        <button class="btn secondary" onclick="splitOrderPopup()">✂️ Split</button>
+                        
                         <button class="btn secondary" onclick="clearCart()">🗑️ Clear</button>
                         <button class="btn success" onclick="checkout()">💵 Charge</button>
                     </div>

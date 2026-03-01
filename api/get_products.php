@@ -3,7 +3,6 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-// Allow either logged-in staff OR the public menu (which sets a public_csrf session)
 // Allow either logged-in staff OR the public menu
 if (empty($_SESSION['user_id']) && empty($_SESSION['public_csrf'])) { 
     echo json_encode(['success' => false, 'error' => 'Unauthorized']); 
@@ -23,7 +22,8 @@ try {
         $products[$row['id']] = $row;
     }
 
-    $v_res = $mysqli->query("SELECT * FROM product_variations ORDER BY sort_order ASC");
+    // FIX: Force variations to ALWAYS order by price from lowest to highest!
+    $v_res = $mysqli->query("SELECT * FROM product_variations ORDER BY price ASC");
     while($v = $v_res->fetch_assoc()) {
         if(isset($products[$v['product_id']])) {
             $v['price'] = (float)$v['price'];
@@ -49,7 +49,7 @@ try {
         }
     }
 
-    // THE FIX: Clean the arrays so JS reads them perfectly
+    // Clean the arrays so JS reads them perfectly
     foreach ($products as &$p) { $p['modifiers'] = array_values(array_unique($p['modifiers'])); }
 
     $all_mods = $mysqli->query("SELECT id, name, price FROM modifiers WHERE is_active = 1")->fetch_all(MYSQLI_ASSOC);
@@ -64,3 +64,4 @@ try {
 } catch (Exception $e) {
     http_response_code(500); echo json_encode(['success' => false, 'error' => $e->getMessage()]); exit;
 }
+?>
