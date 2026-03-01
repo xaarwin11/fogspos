@@ -13,12 +13,14 @@ $user_role = $_SESSION['role'] ?? 'staff';
     <button class="burger-menu" onclick="document.querySelector('.nav-links').classList.toggle('active')">☰</button>
 
     <div class="nav-links">
-        <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager'])): ?>
+        <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager','staff'])): ?>
             <a href="../admin/dashboard.php" style="color:white; text-decoration:none; font-weight:500;">📊 Dashboard</a>
             <a href="../admin/products.php" style="color:white; text-decoration:none; font-weight:500;">📦 Menu</a>
+        <?php endif; ?>
+        <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager'])): ?>
             <a href="../admin/settings.php" style="color:white; text-decoration:none; font-weight:500;">⚙️ Settings</a>
         <?php endif; ?>
-        
+        <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager','staff'])): ?>
         <a href="../pos/" style="color:white; text-decoration:none; font-weight:500;">🖥️ POS</a>
         <a href="#" onclick="manageRegister()" style="color:white; text-decoration:none; padding:8px 12px; border-radius:6px; background:#4e2f1d;">💰 Register</a>
         <button id="navTimeClockBtn" onclick="toggleTimeClock()" style="background:var(--text-muted); border:none; padding:8px 15px; border-radius:6px; color:white; font-weight:bold; cursor:pointer; transition:0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
@@ -29,6 +31,7 @@ $user_role = $_SESSION['role'] ?? 'staff';
             👋 <?php echo htmlspecialchars($_SESSION['username'] ?? 'Staff'); ?>
         </span>
         <a href="../api/auth_logout.php" class="logout">Logout</a>
+        <?php endif; ?>
     </div>
 </nav>
 

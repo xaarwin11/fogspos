@@ -3,11 +3,9 @@ require_once '../db.php';
 session_start();
 if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
 if (!in_array($_SESSION['role'], ['admin','manager'])) { header("Location: ../index.php"); exit; }
-// FIX: Generate the CSRF token if it doesn't exist
 if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
 
 $mysqli = get_db_conn();
-
 $cats = $mysqli->query("SELECT * FROM categories ORDER BY sort_order ASC");
 $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY name ASC");
 ?>
@@ -22,67 +20,26 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
     <meta name="csrf-token" content="<?= $_SESSION['csrf_token'] ?>">
     <script src="../assets/js/sweetalert2.js"></script>
     <style>
-        .admin-layout { 
-            display: grid; 
-            grid-template-columns: 320px 1fr; 
-            gap: 25px; 
-            max-width: 1400px; 
-            margin: 25px auto; 
-            padding: 0 20px; 
-            height: calc(100vh - 100px); 
-        }
-        
-        .list-panel { 
-            background: white; 
-            border-radius: 12px; 
-            border: 1px solid var(--border); 
-            display: flex; flex-direction: column; 
-            overflow: hidden; 
-        }
+        .admin-layout { display: grid; grid-template-columns: 320px 1fr; gap: 25px; max-width: 1400px; margin: 25px auto; padding: 0 20px; height: calc(100vh - 100px); }
+        .list-panel { background: white; border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
         .list-header { padding: 15px; border-bottom: 1px solid var(--border); background: var(--bg-dark); }
         .list-items { overflow-y: auto; flex: 1; }
-        
-        .list-item { 
-            padding: 12px 15px; border-bottom: 1px solid #eee; 
-            cursor: pointer; display: flex; justify-content: space-between;
-        }
+        .list-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items:center; }
         .list-item:hover { background: #fdfaf6; }
         .list-item.active { background: var(--brand); color: white; }
         .list-item.active .text-muted { color: #f0f0f0; }
-
-        .editor-panel { 
-            background: white; border-radius: 12px; 
-            border: 1px solid var(--border); padding: 30px; 
-            overflow-y: auto; 
-        }
-
+        .editor-panel { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; overflow-y: auto; }
         .form-group { margin-bottom: 20px; }
         .form-group label { display: block; font-weight: bold; margin-bottom: 8px; color: var(--text-main); }
-        .form-control { 
-            width: 100%; padding: 10px 15px; border: 1px solid #ccc; 
-            border-radius: 8px; font-size: 1rem; 
-        }
-        
+        .form-control { width: 100%; padding: 10px 15px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; }
         .var-row { display: grid; grid-template-columns: 1fr 100px 50px; gap: 10px; margin-bottom: 10px; }
         .mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .cat-header { background: #f3f4f6; padding: 8px 15px; font-weight: 800; font-size: 0.85rem; color: var(--brand-dark); text-transform: uppercase; border-bottom: 1px solid #ddd; border-top: 1px solid #ddd; }
 
-        /* --- MOBILE RESPONSIVE FIX --- */
         @media (max-width: 900px) {
-            .admin-layout { 
-                grid-template-columns: 1fr; 
-                height: auto; 
-                padding: 10px; 
-                margin: 10px auto;
-                gap: 15px;
-            }
-            .list-panel { 
-                height: 350px; /* Limits the list height so it doesn't take the whole screen */
-            }
-            .editor-panel { 
-                height: auto; 
-                overflow: visible; 
-                padding: 15px; 
-            }
+            .admin-layout { grid-template-columns: 1fr; height: auto; padding: 10px; margin: 10px auto; gap: 15px; }
+            .list-panel { height: 350px; }
+            .editor-panel { height: auto; overflow: visible; padding: 15px; }
             .var-row { grid-template-columns: 1fr 80px 40px; }
         }
     </style>
@@ -108,9 +65,15 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             <form id="productForm" style="display:none;" onsubmit="event.preventDefault();">
                 <input type="hidden" id="prodId">
                 
-                <div class="form-group">
-                    <label>Product Name</label>
-                    <input type="text" id="p_name" class="form-control" required>
+                <div style="display:flex; justify-content:space-between; gap:20px; align-items:flex-end;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Product Name</label>
+                        <input type="text" id="p_name" class="form-control" required>
+                    </div>
+                    <div class="form-group" style="display:flex; align-items:center; gap:10px; background:#f0fdf4; padding:10px 15px; border-radius:8px; border:1px solid #bbf7d0; height:43px;">
+                        <input type="checkbox" id="p_available" style="width:20px; height:20px; cursor:pointer;" checked>
+                        <label style="margin:0; cursor:pointer; color:var(--success);" for="p_available">Available on POS</label>
+                    </div>
                 </div>
 
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
@@ -153,7 +116,7 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
                 <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
 
                 <div style="display:flex; justify-content:space-between;">
-                    <button type="button" class="btn danger" id="btnDelete" onclick="deleteCurrent()">🗑️ Delete Product</button>
+                    <button type="button" class="btn danger" id="btnDelete" onclick="deleteCurrent()">🗑️ Delete</button>
                     <button type="button" class="btn success" id="btnSave" onclick="saveCurrent()" style="padding:10px 30px; font-size:1.1rem;">Save Product</button>
                 </div>
             </form>
@@ -162,15 +125,13 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
 
     <script>
         let products = [];
-        
-        // FIX: Helper to get CSRF token
         const getCsrfToken = () => document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
         document.addEventListener('DOMContentLoaded', loadProducts);
 
-        // --- 1. FETCH DATA ---
         function loadProducts() {
-            fetch('../api/get_products.php')
+            // FIX: Append ?all=1 so the manager sees everything, even hidden items!
+            fetch('../api/get_products.php?all=1')
                 .then(r => r.json())
                 .then(data => {
                     if(data.success) {
@@ -180,7 +141,6 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
                 });
         }
 
-        // --- 2. RENDER LIST ---
         function renderList() {
             const term = document.getElementById('searchMenu').value.toLowerCase();
             const list = document.getElementById('productList');
@@ -188,20 +148,35 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             
             let filtered = products.filter(p => p.name.toLowerCase().includes(term));
             
+            // THE FIX: Group items by Category!
+            let grouped = {};
             filtered.forEach(p => {
-                const isActive = document.getElementById('prodId').value == p.id ? 'active' : '';
-                list.innerHTML += `
-                    <div class="list-item ${isActive}" onclick="editProduct(${p.id})">
-                        <span>${p.name}</span>
-                        <span class="text-muted" style="font-size:0.9rem;">₱${p.price}</span>
-                    </div>
-                `;
+                let cat = p.category_name || 'Uncategorized';
+                if(!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(p);
             });
+
+            for (let cat in grouped) {
+                list.innerHTML += `<div class="cat-header">${cat}</div>`;
+                
+                grouped[cat].forEach(p => {
+                    const isActive = document.getElementById('prodId').value == p.id ? 'active' : '';
+                    
+                    // THE FIX: Add a red badge if the product is unavailable
+                    const hiddenBadge = p.available == 0 ? `<span style="background:var(--danger); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold; margin-left:5px;">HIDDEN</span>` : '';
+                    
+                    list.innerHTML += `
+                        <div class="list-item ${isActive}" onclick="editProduct(${p.id})">
+                            <div style="flex:1;">${p.name} ${hiddenBadge}</div>
+                            <div class="text-muted" style="font-size:0.9rem; font-weight:bold;">₱${p.price}</div>
+                        </div>
+                    `;
+                });
+            }
         }
 
         function filterMenu() { renderList(); }
 
-        // --- 3. EDITOR LOGIC ---
         function newProduct() {
             document.getElementById('productForm').style.display = 'block';
             document.getElementById('editorTitle').innerText = 'Create New Product';
@@ -210,15 +185,13 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             document.getElementById('prodId').value = '';
             document.getElementById('p_name').value = '';
             document.getElementById('p_price').value = '0.00';
+            document.getElementById('p_available').checked = true; // Default to available
             document.getElementById('variationsContainer').innerHTML = '';
             
             document.querySelectorAll('.mod-cb').forEach(cb => cb.checked = false);
             renderList();
 
-            // Mobile Auto-Scroll
-            if(window.innerWidth <= 900) {
-                document.querySelector('.editor-panel').scrollIntoView({behavior: 'smooth'});
-            }
+            if(window.innerWidth <= 900) document.querySelector('.editor-panel').scrollIntoView({behavior: 'smooth'});
         }
 
         function editProduct(id) {
@@ -233,25 +206,18 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             document.getElementById('p_name').value = p.name;
             document.getElementById('p_category').value = p.category_id;
             document.getElementById('p_price').value = p.price;
+            document.getElementById('p_available').checked = (p.available == 1);
 
-            // Load Variations
             const vCon = document.getElementById('variationsContainer');
             vCon.innerHTML = '';
-            if(p.variations) {
-                p.variations.forEach(v => addVariation(v.id, v.name, v.price));
-            }
+            if(p.variations) p.variations.forEach(v => addVariation(v.id, v.name, v.price));
 
-            // Load Modifiers
             document.querySelectorAll('.mod-cb').forEach(cb => {
                 cb.checked = p.modifiers && p.modifiers.includes(parseInt(cb.value));
             });
 
             renderList();
-
-            // Mobile Auto-Scroll
-            if(window.innerWidth <= 900) {
-                document.querySelector('.editor-panel').scrollIntoView({behavior: 'smooth'});
-            }
+            if(window.innerWidth <= 900) document.querySelector('.editor-panel').scrollIntoView({behavior: 'smooth'});
         }
 
         function addVariation(id = '', name = '', price = '') {
@@ -266,7 +232,6 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
             document.getElementById('variationsContainer').insertAdjacentHTML('beforeend', html);
         }
 
-        // --- 4. SAVE ---
         function saveCurrent() {
             if(!document.getElementById('p_name').value) return Swal.fire('Error', 'Name is required', 'error');
 
@@ -278,32 +243,21 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
                 name: document.getElementById('p_name').value,
                 category_id: document.getElementById('p_category').value,
                 price: document.getElementById('p_price').value,
-                variations: [],
-                modifiers: []
+                available: document.getElementById('p_available').checked ? 1 : 0,
+                variations: [], modifiers: []
             };
 
             document.querySelectorAll('.var-row').forEach(row => {
                 const vn = row.querySelector('.v_name').value;
                 const vp = row.querySelector('.v_price').value;
-                if(vn && vp) {
-                    payload.variations.push({
-                        id: row.querySelector('.v_id').value,
-                        name: vn, price: vp
-                    });
-                }
+                if(vn && vp) { payload.variations.push({ id: row.querySelector('.v_id').value, name: vn, price: vp }); }
             });
 
-            document.querySelectorAll('.mod-cb:checked').forEach(cb => {
-                payload.modifiers.push(parseInt(cb.value));
-            });
+            document.querySelectorAll('.mod-cb:checked').forEach(cb => payload.modifiers.push(parseInt(cb.value)));
 
-            // FIX: Added X-CSRF-Token to headers
             fetch('../api/save_product.php', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': getCsrfToken()
-                },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
                 body: JSON.stringify(payload)
             })
             .then(r => r.json())
@@ -312,44 +266,27 @@ $mods = $mysqli->query("SELECT * FROM modifiers WHERE is_active = 1 ORDER BY nam
                     Swal.fire({icon: 'success', title: 'Saved!', timer: 1000, showConfirmButton: false});
                     loadProducts();
                 } else {
-                    Swal.fire('Error', data.error, 'error');
+                    Swal.fire('Error', data.error, 'error'); 
                 }
             })
             .finally(() => { btn.innerText = "Save Product"; btn.disabled = false; });
         }
 
-        // --- 5. DELETE ---
         function deleteCurrent() {
             const id = document.getElementById('prodId').value;
             if(!id) return;
-
             Swal.fire({
-                title: 'Delete Product?',
-                text: "This cannot be undone.",
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#d33',
-                confirmButtonText: 'Delete'
+                title: 'Delete Product?', text: "This cannot be undone.", icon: 'warning',
+                showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Delete'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // FIX: Added X-CSRF-Token to headers
                     fetch('../api/delete_product.php', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': getCsrfToken()
-                        },
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
                         body: JSON.stringify({id: id})
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.success) {
-                            Swal.fire('Deleted!', '', 'success');
-                            newProduct();
-                            loadProducts();
-                        } else {
-                            Swal.fire('Error', data.error, 'error');
-                        }
+                    }).then(r => r.json()).then(data => {
+                        if(data.success) { Swal.fire('Deleted!', '', 'success'); newProduct(); loadProducts(); } 
+                        else { Swal.fire('Error', data.error, 'error'); }
                     });
                 }
             })

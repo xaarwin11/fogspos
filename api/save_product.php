@@ -3,13 +3,11 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-// Security Fix: Hide errors in production
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
 
-// Security Fix: Enforce CSRF token
 $headers = getallheaders();
 $csrf_token = $headers['X-CSRF-Token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (empty($csrf_token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_token)) {
@@ -22,9 +20,10 @@ $input = json_decode(file_get_contents('php://input'), true);
 if (!$input) { echo json_encode(['success' => false, 'error' => 'No data reached the server.']); exit; }
 
 $id = !empty($input['id']) ? (int)$input['id'] : null;
-$name = $input['name'] ?? '';
+$name = trim($input['name'] ?? '');
 $cat_id = (int)($input['category_id'] ?? 0);
 $base_price = (float)($input['price'] ?? 0);
+$available = isset($input['available']) ? (int)$input['available'] : 1; // THE TOGGLE DATA!
 $variations = $input['variations'] ?? []; 
 $modifier_ids = $input['modifiers'] ?? []; 
 
@@ -37,18 +36,29 @@ try {
     $mysqli = get_db_conn();
     $mysqli->begin_transaction();
 
+    // ============================================================
+    // FIX 1: STRICT DUPLICATE NAME CHECKER! (Blocks Double-clicks)
+    // ============================================================
+    $check_id = $id ? $id : 0;
+    $dup_stmt = $mysqli->prepare("SELECT id FROM products WHERE name = ? AND id != ?");
+    $dup_stmt->bind_param('si', $name, $check_id);
+    $dup_stmt->execute();
+    if ($dup_stmt->get_result()->num_rows > 0) {
+        echo json_encode(['success' => false, 'error' => 'A product with this exact name already exists!']);
+        exit;
+    }
+    $dup_stmt->close();
+
     // 1. UPDATE or INSERT Product
     if ($id) {
-        $stmt = $mysqli->prepare("UPDATE products SET category_id=?, name=?, price=?, updated_at=NOW() WHERE id=?");
-        if (!$stmt) throw new Exception("UPDATE Prep Failed");
-        $stmt->bind_param('isdi', $cat_id, $name, $base_price, $id);
-        if (!$stmt->execute()) throw new Exception("UPDATE Exec Failed");
+        $stmt = $mysqli->prepare("UPDATE products SET category_id=?, name=?, price=?, available=?, updated_at=NOW() WHERE id=?");
+        $stmt->bind_param('isdii', $cat_id, $name, $base_price, $available, $id);
+        $stmt->execute();
         $product_id = $id;
     } else {
-        $stmt = $mysqli->prepare("INSERT INTO products (category_id, name, price, available) VALUES (?, ?, ?, 1)");
-        if (!$stmt) throw new Exception("INSERT Prep Failed");
-        $stmt->bind_param('isd', $cat_id, $name, $base_price);
-        if (!$stmt->execute()) throw new Exception("INSERT Exec Failed");
+        $stmt = $mysqli->prepare("INSERT INTO products (category_id, name, price, available) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param('isdi', $cat_id, $name, $base_price, $available);
+        $stmt->execute();
         $product_id = $mysqli->insert_id;
     }
 
@@ -81,9 +91,7 @@ try {
     $to_delete = array_diff($current_vars, $incoming_v_ids);
     if (!empty($to_delete)) {
         $ids_string = implode(',', $to_delete);
-        if (!$mysqli->query("DELETE FROM product_variations WHERE id IN ($ids_string) AND id NOT IN (SELECT DISTINCT variation_id FROM order_items WHERE variation_id IS NOT NULL)")) {
-            throw new Exception("VAR DELETE Failed");
-        }
+        $mysqli->query("DELETE FROM product_variations WHERE id IN ($ids_string) AND id NOT IN (SELECT DISTINCT variation_id FROM order_items WHERE variation_id IS NOT NULL)");
     }
 
     // 3. REBUILD MODIFIERS
@@ -104,5 +112,6 @@ try {
     echo json_encode(['success' => true, 'product_id' => $product_id]);
 } catch (Exception $e) {
     if(isset($mysqli)) $mysqli->rollback();
-    echo json_encode(['success' => false, 'error' => "Transaction failed. Database changes reverted."]);
+    echo json_encode(['success' => false, 'error' => "Transaction failed."]);
 }
+?>

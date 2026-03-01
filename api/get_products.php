@@ -3,7 +3,6 @@ require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
 
-// Allow either logged-in staff OR the public menu
 if (empty($_SESSION['user_id']) && empty($_SESSION['public_csrf'])) { 
     echo json_encode(['success' => false, 'error' => 'Unauthorized']); 
     exit; 
@@ -12,17 +11,22 @@ if (empty($_SESSION['user_id']) && empty($_SESSION['public_csrf'])) {
 try {
     $mysqli = get_db_conn();
 
-    $res = $mysqli->query("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.available = 1 ORDER BY p.sort_order ASC, p.name ASC");
+    // THE FIX: Check for the "?all=1" URL parameter, ignore user role!
+    $show_all = (isset($_GET['all']) && $_GET['all'] == '1');
+    $where_clause = $show_all ? "WHERE 1=1" : "WHERE p.available = 1";
+
+    $res = $mysqli->query("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id $where_clause ORDER BY p.sort_order ASC, p.name ASC");
+    
     $products = [];
     while($row = $res->fetch_assoc()) {
         $row['price'] = (float)$row['price'];
         $row['category_id'] = (int)$row['category_id'];
+        $row['available'] = (int)$row['available'];
         $row['variations'] = [];
         $row['modifiers'] = []; 
         $products[$row['id']] = $row;
     }
 
-    // FIX: Force variations to ALWAYS order by price from lowest to highest!
     $v_res = $mysqli->query("SELECT * FROM product_variations ORDER BY price ASC");
     while($v = $v_res->fetch_assoc()) {
         if(isset($products[$v['product_id']])) {
@@ -49,7 +53,6 @@ try {
         }
     }
 
-    // Clean the arrays so JS reads them perfectly
     foreach ($products as &$p) { $p['modifiers'] = array_values(array_unique($p['modifiers'])); }
 
     $all_mods = $mysqli->query("SELECT id, name, price FROM modifiers WHERE is_active = 1")->fetch_all(MYSQLI_ASSOC);
