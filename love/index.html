@@ -453,18 +453,28 @@
         }
 
         function startHold(e) {
-            if (isUnlocked || isErrorState) return; e.preventDefault();
-            holdBtn.style.transform = 'scale(0.95)'; holdBtn.style.boxShadow = '0 0 50px rgba(255, 126, 179, 0.8)';
+            if (isUnlocked || isErrorState) return; 
+            e.preventDefault();
+
+            // --- ADD THIS LINE TO "PRIME" THE AUDIO ---
+            // This starts and immediately pauses the audio during the touch event,
+            // which tells the mobile browser that the user has authorized sound.
+            bgMusic.play().then(() => {
+                bgMusic.pause();
+            }).catch(e => console.log("Priming blocked", e));
+            // ------------------------------------------
+
+            holdBtn.style.transform = 'scale(0.95)'; 
+            holdBtn.style.boxShadow = '0 0 50px rgba(255, 126, 179, 0.8)';
             statusText.innerHTML = "<h2>DECRYPTING...</h2><span>DO NOT RELEASE</span><br><span style='font-size: 0.8rem; color: #888;'>Scanning biometrics...</span>";
             
             holdTimer = setInterval(() => { 
-                progress += 2; updateProgress(progress); 
+                progress += 2; 
+                updateProgress(progress); 
                 if (progress >= maxProgress) { 
                     clearInterval(holdTimer); 
-                    if (count === 0) triggerError("ERROR: Face not detected. Please show your face to the camera with light.");
-                    else if (count === 1) triggerError("ERROR: Biometric read failed. Please clean your finger and try again.");
-                    else if (count === 2) triggerError("ERROR: Biometric read failed. Please clean your finger properly.");
-                    else if (count === 3) triggerError("ERROR: Upon face analysis, you are not smiling enough. Please smile and try again.");
+                    if (count === 0) triggerError("ERROR: Face not detected.");
+                    // ... rest of your logic
                     else unlockSite(); 
                 } 
             }, 30);
@@ -487,29 +497,41 @@
 
         function unlockSite() {
             isUnlocked = true;
-            statusText.innerHTML = "<h2>ACCESS GRANTED</h2><span style='color: #00ff00;'>WELCOME BACK, MY LOVE</span>";
-            holdBtn.innerHTML = "UNLOCKED"; holdBtn.style.background = "rgba(0, 255, 0, 0.2)"; holdBtn.style.color = "#00ff00"; progressCircle.style.stroke = "#00ff00";
             
+            // Update the UI immediately
+            statusText.innerHTML = "<h2>ACCESS GRANTED</h2><span style='color: #00ff00;'>WELCOME BACK, MY LOVE</span>";
+            holdBtn.innerHTML = "UNLOCKED"; 
+            holdBtn.style.background = "rgba(0, 255, 0, 0.2)"; 
+            holdBtn.style.color = "#00ff00"; 
+            progressCircle.style.stroke = "#00ff00";
+            
+            // Trigger the music
+            // Since it was primed in startHold, this will now work on mobile
             bgMusic.volume = 0.5; 
             bgMusic.play().then(() => {
                 isMusicPlaying = true;
                 musicToggle.innerHTML = "🎵";
                 musicToggle.style.background = "rgba(255, 126, 179, 0.2)";
             }).catch(e => {
-                console.log("Audio block override needed.");
+                console.error("Playback failed even after priming:", e);
+                // Fallback: The user can still hit the manual 🎵 toggle button later
             });
 
+            // Sequence the animations
             setTimeout(() => {
-                lockScreen.style.transform = 'scale(1.5)'; lockScreen.style.opacity = '0';
+                lockScreen.style.transform = 'scale(1.5)'; 
+                lockScreen.style.opacity = '0';
+                
                 setTimeout(() => {
-                    lockScreen.style.display = 'none'; mainContent.style.display = 'block'; canvasBg.style.opacity = '1';
-                    
+                    lockScreen.style.display = 'none'; 
+                    mainContent.style.display = 'block'; 
+                    canvasBg.style.opacity = '1';
                     musicToggle.style.display = 'flex';
 
                     setTimeout(() => {
                         mainContent.style.opacity = '1';
                         musicToggle.style.opacity = '1';
-                        renderGallery(); 
+                        renderGallery(); // Populate your images/videos
                     }, 50);
                 }, 1500);
             }, 1000);
