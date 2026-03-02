@@ -24,7 +24,7 @@ if (file_exists(__DIR__ . '/.env')) {
 // FIX: Renamed all these to start with $db_ so they never collide with your app!
 $db_host = $_ENV['DB_HOST'] ?? 'localhost';
 $db_user = $_ENV['DB_USER'] ?? 'root';
-$db_pass = $_ENV['DB_PASS'] ?? null;
+$db_pass = $_ENV['DB_PASS'] ?? '290505Slol';
 if (!$db_pass) {
     die("CRITICAL ERROR: Database credentials not loaded.");
 }

@@ -634,15 +634,59 @@ window.pickTable = async function(id, num, status) {
     if(status === 'occupied') {
         const r = await fetch(`../api/get_active_order.php?table_id=${id}`);
         const d = await r.json();
-        if(d.success) { syncOrderState(d); renderCart(); }
-    } else { 
-        // 🚨 FIX: Aggressively wipe the old Order ID memory for new tables!
-        state.activeOrderId = null; 
         
+        if(d.multiple) {
+            // MULTIPLE CHECKS POPUP (Now with Fast Item Summary!)
+            let html = '<div style="display:flex; flex-direction:column; gap:10px; max-height:400px; overflow-y:auto; padding-right:5px;">';
+            d.orders.forEach((o, index) => {
+                let cName = o.customer_name ? o.customer_name : `Check ${index + 1}`;
+                let summary = o.item_summary ? o.item_summary : 'No items';
+                
+                html += `
+                <button class="btn secondary" style="padding:15px; text-align:left; display:flex; flex-direction:column; gap:8px; border:1px solid #ccc; background:#fff;" onclick="loadSubCheck(${o.id}, '${cName}')">
+                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                        <span style="font-weight:900; font-size:1.1rem; color:var(--text-main);">🧾 ${cName}</span>
+                        <span style="font-weight:900; color:var(--brand); font-size:1.2rem;">₱${parseFloat(o.grand_total).toFixed(2)}</span>
+                    </div>
+                    <div style="font-size:0.85rem; color:gray; white-space:normal; line-height:1.4;">
+                        ${summary}
+                    </div>
+                </button>`;
+            });
+            html += `<button class="btn" style="padding:15px; margin-top:5px; background:#2e7d32;" onclick="createNewSubCheck()">+ Create New Check Here</button>`;
+            html += '</div>';
+            
+            Swal.fire({ title: 'Table ' + num + ' (Sub-Checks)', html: html, showConfirmButton: false, showCancelButton: true });
+        } else if(d.success) { 
+            syncOrderState(d); renderCart(); 
+        }
+    } else { 
+        state.activeOrderId = null; 
         state.cart = []; state.discount_amount = 0; state.discount_note = ''; state.discount_id = null; state.amount_paid = 0;
         state.custom_discount = { is_active: false };
         renderCart();
     }
+};
+
+window.loadSubCheck = async function(orderId, cName) {
+    Swal.fire({title:'Loading...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    const r = await fetch(`../api/get_active_order.php?order_id=${orderId}`);
+    const d = await r.json();
+    if(d.success) { 
+        syncOrderState(d); 
+        document.getElementById('tableName').innerText = document.getElementById('tableName').innerText.split(' - ')[0] + ' - ' + cName;
+        renderCart(); 
+        Swal.close();
+    }
+};
+
+window.createNewSubCheck = function() {
+    state.activeOrderId = 'new';
+    state.cart = []; state.discount_id = null; state.discount_amount = 0; state.discount_note = ''; state.senior_details = []; state.amount_paid = 0;
+    state.custom_discount = { is_active: false };
+    Swal.close();
+    renderCart();
+    Swal.fire('New Check Started', 'Add items and hit save to generate a secondary check on this table.', 'info');
 };
 
 window.splitBillByItem = async function(balance) {
@@ -865,6 +909,9 @@ function toggleCartDrawer() {
 // ============================================================================
 // ORDER SPLITTING LOGIC (Generates separate physical receipts)
 // ============================================================================
+// ============================================================================
+// TRUE SUB-CHECK SPLITTING (Keeps items as Dine-In on the exact same table!)
+// ============================================================================
 window.splitOrderPopup = async function() {
     if (!state.activeOrderId || state.activeOrderId === 'new') return Swal.fire('Save First', 'Please save the order before splitting.', 'warning');
     
@@ -872,21 +919,19 @@ window.splitOrderPopup = async function() {
     if (totalItems < 2) return Swal.fire('Error', 'Not enough items to split. You need at least 2 items.', 'warning');
 
     let html = `<div style="text-align:left; max-height:350px; overflow-y:auto; padding:5px;">`;
-    html += `<div style="font-size:0.9rem; color:gray; margin-bottom:15px;">Select how many items to move to a separate receipt. The new receipt will be created as a <b>Takeout</b> order.</div>`;
+    html += `<div style="font-size:0.9rem; color:gray; margin-bottom:15px;">Select items to move to a new separate bill. <b>They will remain at this table.</b></div>`;
     
     state.cart.forEach((item, idx) => {
         html += `
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #ddd; padding:12px 0;">
                 <div style="flex:1; line-height:1.2; padding-right:10px;">
                     <div style="font-weight:bold; font-size:1rem;">${item.name}</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted);">Current Table: ${item.qty}</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted);">Current Check: ${item.qty}</div>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px; background:#f3f4f6; padding:6px; border-radius:30px;">
-                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.05);" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
-                    
+                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer;" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
                     <input type="number" id="sqty_${idx}" value="0" min="0" max="${item.qty}" style="width:30px; text-align:center; background:transparent; border:none; font-weight:bold; font-size:1.2rem; color:var(--brand);" readonly>
-                    
-                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.05);" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
+                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer;" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
                 </div>
             </div>
         `;
@@ -894,10 +939,10 @@ window.splitOrderPopup = async function() {
     html += `</div>`;
 
     const { value: proceed } = await Swal.fire({
-        title: '✂️ Split Receipt',
+        title: '✂️ Split to New Check',
         html: html,
         showCancelButton: true,
-        confirmButtonText: 'Move to New Receipt',
+        confirmButtonText: 'Move to New Check',
         confirmButtonColor: '#6B4226',
         width: 500,
         preConfirm: () => {
@@ -905,21 +950,16 @@ window.splitOrderPopup = async function() {
             let keepCart = [];
             let totalMoved = 0;
             
-            // FIX: Do ALL the math here before the popup closes!
             state.cart.forEach((item, idx) => {
                 let moveQty = parseInt(document.getElementById(`sqty_${idx}`).value) || 0;
-                
-                // 1. Build the Moved Array
                 if (moveQty > 0) {
                     totalMoved += moveQty;
                     let clonedMove = JSON.parse(JSON.stringify(item));
                     clonedMove.qty = moveQty;
-                    clonedMove.discount_amount = 0; 
-                    clonedMove.discount_note = '';
+                    clonedMove.discount_amount = 0; clonedMove.discount_note = '';
                     toMove.push(clonedMove);
                 }
                 
-                // 2. Build the Kept Array
                 let keepQty = item.qty - moveQty;
                 if (keepQty > 0) {
                     let clonedKeep = JSON.parse(JSON.stringify(item));
@@ -929,9 +969,7 @@ window.splitOrderPopup = async function() {
             });
             
             if (totalMoved === 0) { Swal.showValidationMessage('Select at least one item to move.'); return false; }
-            if (totalMoved === totalItems) { Swal.showValidationMessage('You cannot move everything. Use the "Move Table" button instead.'); return false; }
-            
-            // Return both arrays together
+            if (totalMoved === totalItems) { Swal.showValidationMessage('You cannot move everything. Use the Transfer button instead.'); return false; }
             return { toMove: toMove, keepCart: keepCart };
         }
     });
@@ -939,34 +977,26 @@ window.splitOrderPopup = async function() {
     if (proceed) {
         Swal.fire({title: 'Splitting...', text: 'Updating databases', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
         
-        let originalTableName = document.getElementById('tableName').innerText;
+        let originalTableName = document.getElementById('tableName').innerText.split(' - ')[0];
         
-        // 1. Save current table with the remaining items
+        // 1. Update Check 1
         state.cart = proceed.keepCart;
         await window.saveOrder(true);
         
-        // 2. Setup and save the brand new Takeout order with the moved items!
-        state.mode = 'takeout';
-        state.activeTableId = null;
+        // 2. Setup Check 2 (STAYS ON DINE-IN, STAYS ON SAME TABLE)
         state.activeOrderId = 'new';
-        state.customer_name = originalTableName + ' (Split)';
+        state.customer_name = 'Split Check'; // Helps identify it in the modal
         state.cart = proceed.toMove; 
         state.discount_id = null; state.discount_note = ''; state.senior_details = []; state.custom_discount = {is_active:false}; state.amount_paid = 0;
         
         await window.saveOrder(true);
         
         Swal.fire({
-            icon: 'success', 
-            title: 'Split Successful!', 
-            text: `The items were successfully moved to Takeout under "${state.customer_name}".`,
-            confirmButtonText: 'Open New Receipt',
-            confirmButtonColor: '#2e7d32'
+            icon: 'success', title: 'Split Successful!', text: `Items moved to a new Check on this table.`,
+            confirmButtonText: 'Open New Check', confirmButtonColor: '#2e7d32'
         });
         
-        // Update UI toggles to reflect the new state
-        document.getElementById('btnDineIn').classList.remove('active');
-        document.getElementById('btnTakeout').classList.add('active');
-        document.getElementById('tableName').innerText = 'Takeout: ' + state.customer_name;
+        document.getElementById('tableName').innerText = originalTableName + ' - Split Check';
         renderCart();
     }
 };

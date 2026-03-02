@@ -31,14 +31,6 @@ try {
     $mysqli = get_db_conn();
     $mysqli->begin_transaction();
 
-    if ($order_type === 'dine_in' && !$order_id) {
-        $stmt = $mysqli->prepare("SELECT id FROM orders WHERE table_id = ? AND status = 'open' LIMIT 1");
-        $stmt->bind_param('i', $table_id);
-        $stmt->execute();
-        if ($row = $stmt->get_result()->fetch_assoc()) $order_id = $row['id'];
-        $stmt->close();
-    }
-
     if (!$order_id) {
         $stmt = $mysqli->prepare("INSERT INTO orders (table_id, order_type, status, customer_name, created_at) VALUES (?, ?, 'open', ?, NOW())");
         $stmt->bind_param('iss', $table_id, $order_type, $customer_name);
