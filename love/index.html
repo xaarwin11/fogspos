@@ -472,9 +472,11 @@
                 progress += 2; 
                 updateProgress(progress); 
                 if (progress >= maxProgress) { 
-                    clearInterval(holdTimer); 
-                    if (count === 0) triggerError("ERROR: Face not detected.");
-                    // ... rest of your logic
+                    clearInterval(holdTimer);  
+                    if (count === 0) triggerError("ERROR: Face not detected. Please show your face to the camera with light.");
+                    else if (count === 1) triggerError("ERROR: Biometric read failed. Please clean your finger and try again.");
+                    else if (count === 2) triggerError("ERROR: Biometric read failed. Please clean your finger properly.");
+                    else if (count === 3) triggerError("ERROR: Upon face analysis, you are not smiling enough. Please smile and try again.");
                     else unlockSite(); 
                 } 
             }, 30);
