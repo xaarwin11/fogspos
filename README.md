@@ -52,9 +52,13 @@ A robust, web-based Point of Sale (POS) system custom-built for **FogsTasa's Caf
 1. **Clone & Serve:** Place the repository in your web server directory (e.g., Apache/Nginx on Proxmox/Linux).
 2. **Database:** Import the provided SQL schema into your MariaDB instance. Ensure the `view_table_status` View is created.
 3. **Dependencies:** Run `composer install` in the root directory to install the Mike42 ESC/POS library.
-4. **Configuration:** * Update `db.php` with your database credentials.
+4. **Default Login:** Select Admin and use PIN: 1234 (Please change this immediately after your first login!)
+5. **Configuration:** * Update `db.php` with your database credentials.
    * Ensure your PHP environment has `display_errors = 0` in production for security.
-5. **Printers:** Assign your thermal printer IPs (e.g., `192.168.1.100`) via the system settings table for Kitchen, Bar, and Receipt routing.
+6. **Printers:** Assign your thermal printer IPs (e.g., `192.168.1.100`) via the system settings table for Kitchen, Bar, and Receipt routing.
+
+   *To use your own logo replace the current files with the image of yours*
+   **Color and theme change is not yet available**
 
 ---
 
