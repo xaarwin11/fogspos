@@ -383,6 +383,14 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
 
         async function promptDiscount(obj = null) {
             const isEdit = obj !== null;
+            
+            // 1. Build the Category Checkboxes
+            let catHtml = '';
+            sd.categories.forEach(c => {
+                const isChecked = (isEdit && obj.target_categories && obj.target_categories.includes(parseInt(c.id))) ? 'checked' : '';
+                catHtml += `<label style="display:block; text-align:left; padding:5px;"><input type="checkbox" class="disc-cat-cb" value="${c.id}" ${isChecked}> ${c.name}</label>`;
+            });
+
             const { value: form } = await Swal.fire({
                 title: isEdit ? 'Edit Discount' : 'New Discount',
                 html: `
@@ -392,18 +400,33 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                         <option value="fixed" ${isEdit && obj.type === 'fixed' ? 'selected' : ''}>Flat Amount (₱)</option>
                     </select>
                     <input type="number" id="sw-val" class="swal2-input" placeholder="Value (e.g. 20)" step="0.01" value="${isEdit ? obj.value : ''}">
-                    <select id="sw-tgt" class="swal2-input">
+                    
+                    <select id="sw-tgt" class="swal2-input" onchange="document.getElementById('disc-cat-container').style.display = this.value === 'specific' ? 'block' : 'none'">
                         <option value="all" ${isEdit && obj.target_type === 'all' ? 'selected' : ''}>Apply to Whole Bill</option>
                         <option value="highest" ${isEdit && obj.target_type === 'highest' ? 'selected' : ''}>Apply to Highest Item (SC/PWD Rule)</option>
+                        <option value="specific" ${isEdit && obj.target_type === 'specific' ? 'selected' : ''}>Specific Categories...</option>
                     </select>
+                    
+                    <div id="disc-cat-container" style="display:${isEdit && obj.target_type === 'specific' ? 'block' : 'none'}; border:1px solid #ddd; padding:10px; border-radius:8px; max-height:150px; overflow-y:auto; margin-top:10px; background:#f9fafb;">
+                        <div style="font-weight:bold; margin-bottom:5px; text-align:left; color:var(--brand-dark);">Select Categories:</div>
+                        ${catHtml}
+                    </div>
                 `,
                 focusConfirm: false, showCancelButton: true, confirmButtonColor: '#6B4226',
                 preConfirm: () => { 
+                    // 2. Grab the checked categories if "specific" is chosen
+                    let targetCats = [];
+                    if (document.getElementById('sw-tgt').value === 'specific') {
+                        document.querySelectorAll('.disc-cat-cb:checked').forEach(cb => targetCats.push(parseInt(cb.value)));
+                        if (targetCats.length === 0) { Swal.showValidationMessage('Select at least one category!'); return false; }
+                    }
+                    
                     return { 
                         name: document.getElementById('sw-name').value, 
                         type: document.getElementById('sw-type').value, 
                         value: document.getElementById('sw-val').value, 
-                        target_type: document.getElementById('sw-tgt').value 
+                        target_type: document.getElementById('sw-tgt').value,
+                        target_categories: targetCats // Send the array to the backend!
                     }; 
                 }
             });
