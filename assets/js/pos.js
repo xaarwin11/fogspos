@@ -81,12 +81,11 @@ function renderProducts() {
 }
 
 // ============================================================================
-// REUSABLE HELPER: Handles Size & Add-on Modals for both Adding and Editing
+// REUSABLE HELPER: Now includes Item Notes!
 // ============================================================================
-window.selectProductOptions = async function(p, preselectedVarId = null, preselectedModIds = []) {
-    let result = { canceled: false, variation_id: null, variation_name: null, price: parseFloat(p.price), modifiers: [] };
+window.selectProductOptions = async function(p, preselectedVarId = null, preselectedModIds = [], preselectedNote = '') {
+    let result = { canceled: false, variation_id: null, variation_name: null, price: parseFloat(p.price), modifiers: [], item_notes: preselectedNote };
 
-    // 1. VARIATIONS MODAL
     if (p.variations && p.variations.length > 0) {
         const { value: vId, isDismissed } = await Swal.fire({
             title: 'Select Size',
@@ -107,42 +106,51 @@ window.selectProductOptions = async function(p, preselectedVarId = null, presele
         result.variation_id = v.id; result.variation_name = v.name; result.price = parseFloat(v.price);
     }
 
-    // 2. MODIFIERS MODAL
+    // THE FIX: Always show the Add-ons OR Notes modal!
     const pMods = p.modifiers || [];
-    if (pMods.length > 0) {
-        const allowed = state.modifiers.filter(m => pMods.includes(Number(m.id)) || pMods.includes(String(m.id)));
-        if (allowed.length > 0) {
-            const { value: selectedMods, isDismissed } = await Swal.fire({
-                title: preselectedModIds.length > 0 ? 'Update Add-ons' : 'Add-ons?',
-                html: `<div class="swal-list">${allowed.map(m => {
-                    const isChecked = preselectedModIds.includes(m.id) ? 'checked' : '';
-                    return `<label class="swal-check" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;"><span>${m.name} (+₱${m.price})</span><input type="checkbox" class="mod-cb" value="${m.id}" data-name="${m.name}" data-price="${m.price}" ${isChecked}></label>`;
-                }).join('')}</div>`,
-                preConfirm: () => Array.from(document.querySelectorAll('.mod-cb:checked')).map(i => ({ id: parseInt(i.value), name: i.dataset.name, price: parseFloat(i.dataset.price) })),
-                confirmButtonColor: '#6B4226', showCancelButton: true
-            });
-            
-            // If they cancel during an edit, preserve original mods. If new, keep it empty.
-            if (isDismissed) {
-                if (preselectedModIds.length > 0) {
-                    result.modifiers = preselectedModIds.map(id => allowed.find(m => m.id == id)).filter(Boolean).map(m => ({id: parseInt(m.id), name: m.name, price: parseFloat(m.price)}));
-                }
-            } else {
-                result.modifiers = selectedMods || [];
-            }
-        }
+    let modHtml = '';
+    const allowed = state.modifiers.filter(m => pMods.includes(Number(m.id)) || pMods.includes(String(m.id)));
+    
+    if (allowed.length > 0) {
+        modHtml = `<div class="swal-list">${allowed.map(m => {
+            const isChecked = preselectedModIds.includes(m.id) ? 'checked' : '';
+            return `<label class="swal-check" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;"><span>${m.name} (+₱${m.price})</span><input type="checkbox" class="mod-cb" value="${m.id}" data-name="${m.name}" data-price="${m.price}" ${isChecked}></label>`;
+        }).join('')}</div>`;
     }
+
+    const { value: optionsData, isDismissed: modDismissed } = await Swal.fire({
+        title: preselectedModIds.length > 0 ? 'Update Options' : 'Options & Notes',
+        html: `
+            ${modHtml}
+            <textarea id="swal-note" placeholder="Special Instructions (e.g. No onions, Extra ice)..." style="width:100%; box-sizing:border-box; margin-top:15px; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;">${preselectedNote || ''}</textarea>
+        `,
+        preConfirm: () => {
+            let mods = [];
+            if (allowed.length > 0) {
+                mods = Array.from(document.querySelectorAll('.mod-cb:checked')).map(i => ({ id: parseInt(i.value), name: i.dataset.name, price: parseFloat(i.dataset.price) }));
+            }
+            return { mods: mods, note: document.getElementById('swal-note').value };
+        },
+        confirmButtonColor: '#6B4226', showCancelButton: true
+    });
+    
+    if (modDismissed) {
+        if (preselectedModIds.length > 0) {
+            result.modifiers = preselectedModIds.map(id => allowed.find(m => m.id == id)).filter(Boolean).map(m => ({id: parseInt(m.id), name: m.name, price: parseFloat(m.price)}));
+        }
+    } else {
+        result.modifiers = optionsData.mods || [];
+        result.item_notes = optionsData.note || null;
+    }
+    
     return result;
 };
 
-// ============================================================================
-// ADD ITEM TO CART (Uses the new DRY helper)
-// ============================================================================
 window.handleProductSelection = async function(p) {
     if (state.mode === 'dine_in' && !state.activeTableId) return Swal.fire('Table Required', 'Select a table first', 'warning');
     if (state.mode === 'takeout' && !state.activeOrderId && state.activeOrderId !== 'new') return Swal.fire('Takeout Required', 'Create a new takeout order first', 'warning');
 
-    let item = { id: p.id, name: p.name, price: parseFloat(p.price), qty: 1, variation_id: null, variation_name: null, modifiers: [], discount_amount: 0, discount_note: '' };
+    let item = { id: p.id, name: p.name, price: parseFloat(p.price), qty: 1, variation_id: null, variation_name: null, modifiers: [], item_notes: null, discount_amount: 0, discount_note: '' };
 
     const options = await window.selectProductOptions(p);
     if (options.canceled) return;
@@ -154,10 +162,12 @@ window.handleProductSelection = async function(p) {
         item.price = options.price;
     }
     item.modifiers = options.modifiers;
+    item.item_notes = options.item_notes; // SAVE NOTE
 
+    // Notes make an item strictly unique (prevent merging)
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
-    const uniqueKey = `${item.id}-${item.variation_id}-${modKey}`;
-    const existingIndex = state.cart.findIndex(i => `${i.id}-${i.variation_id}-${i.modifiers.map(m => m.id).sort().join(',')}` === uniqueKey);
+    const uniqueKey = `${item.id}-${item.variation_id}-${modKey}-${item.item_notes || ''}`;
+    const existingIndex = state.cart.findIndex(i => `${i.id}-${i.variation_id}-${i.modifiers.map(m => m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
 
     if (existingIndex > -1) state.cart[existingIndex].qty += 1;
     else state.cart.push(item);
@@ -192,7 +202,11 @@ window.renderCart = function() {
                 <div class="bill-item" style="padding: 10px 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                     <div style="flex:1; line-height: 1.2;">
                         <div style="font-weight:700; font-size:0.95rem; cursor:pointer; color:var(--text-main);" onclick="editCartItem(${idx})" title="Tap to edit">${item.name}</div>
+                        
                         ${item.modifiers.length > 0 ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">+ ${item.modifiers.map(m => m.name).join(', ')}</div>` : ''}
+                        
+                        ${item.item_notes ? `<div style="font-size:0.8rem; color:#d97706; margin-top:2px;">📝 ${item.item_notes}</div>` : ''}
+                        
                         ${discountBadge}
                     </div>
                     <div style="display:flex; align-items:center; gap:8px; background:#f3f4f6; padding:4px 8px; border-radius:20px;">
@@ -289,7 +303,7 @@ window.editCartItem = async function(idx) {
     
     let selectedMods = item.modifiers ? item.modifiers.map(m => m.id) : [];
 
-    const options = await window.selectProductOptions(p, item.variation_id, selectedMods);
+    const options = await window.selectProductOptions(p, item.variation_id, selectedMods, item.item_notes);
     if (options.canceled) return; 
 
     if (options.variation_id) {
@@ -299,10 +313,11 @@ window.editCartItem = async function(idx) {
         item.price = options.price;
     }
     item.modifiers = options.modifiers;
+    item.item_notes = options.item_notes; // UPDATE NOTE
 
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
-    const uniqueKey = `${item.id}-${item.variation_id}-${modKey}`;
-    const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.modifiers.map(m=>m.id).sort().join(',')}` === uniqueKey);
+    const uniqueKey = `${item.id}-${item.variation_id}-${modKey}-${item.item_notes || ''}`;
+    const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.modifiers.map(m=>m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
     
     if (dupIdx > -1) { 
         state.cart[dupIdx].qty += item.qty; 
@@ -419,11 +434,11 @@ window.customOrderDiscount = async function() {
                 <option value="amount">Flat Amount (₱)</option>
             </select>
             <input type="number" id="cd-val" class="search-bar" placeholder="Enter Value (e.g. 10)" step="0.01" style="margin-bottom:10px;">
-            <select id="cd-target" class="search-bar" style="margin-bottom:10px; font-weight:bold;" onchange="document.getElementById('cat-list').style.display = this.value === 'specific' ? 'block' : 'none'">
+            <select id="cd-target" class="search-bar" style="margin-bottom:10px; font-weight:bold;" onchange="document.getElementById('cat-list').style.display = this.value === 'custom' ? 'block' : 'none'">
                 <option value="all">Whole Bill (Excl. Alcohol)</option>
                 <option value="food">All Food Only</option>
                 <option value="drink">All Drinks (Excl. Alcohol)</option>
-                <option value="specific">Specific Categories...</option>
+                <option value="custom">Specific Categories (Custom)...</option>
             </select>
             <div id="cat-list" style="display:none; text-align:left; background:#f9fafb; padding:10px; border:1px solid #ddd; border-radius:8px; max-height:150px; overflow-y:auto; margin-bottom:10px;">
                 ${catChecks}
@@ -436,7 +451,7 @@ window.customOrderDiscount = async function() {
             if (!val || val <= 0) { Swal.showValidationMessage('Enter a valid amount'); return false; }
             const target = document.getElementById('cd-target').value;
             let targetCats = [];
-            if (target === 'specific') {
+            if (target === 'custom') { // FIX: Check for 'custom' here!
                 document.querySelectorAll('.cd-cat-cb:checked').forEach(cb => targetCats.push(parseInt(cb.value)));
                 if (targetCats.length === 0) { Swal.showValidationMessage('Select at least one category!'); return false; }
             }

@@ -157,11 +157,11 @@ try {
                 $id = $mysqli->insert_id;
             }
             
-            // FIX: Rebuild the Junction Table mappings
+            // FIX: Rebuild the Junction Table mappings using 'custom'
             $d_stmt = $mysqli->prepare("DELETE FROM discount_categories WHERE discount_id = ?");
             $d_stmt->bind_param('i', $id); $d_stmt->execute();
             
-            if ($target === 'specific' && !empty($target_categories)) {
+            if ($target === 'custom' && !empty($target_categories)) {
                 $i_stmt = $mysqli->prepare("INSERT INTO discount_categories (discount_id, category_id) VALUES (?, ?)");
                 foreach($target_categories as $cat_id) {
                     $c_id = (int)$cat_id;

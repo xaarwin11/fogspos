@@ -125,22 +125,39 @@ if (isset($_SESSION['user_id'])) {
                 return;
             }
 
-            fetch('api/timeclock_pin.php', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ passcode: pin }) 
-            })
-            .then(r => r.json())
-            .then(data => {
-                if(data.success) {
-                    Swal.fire({
-                        icon: 'success', title: data.action === 'clocked_in' ? 'Clocked In' : 'Clocked Out',
-                        text: data.message, timer: 3000, showConfirmButton: false
-                    });
-                } else { Swal.fire({icon: 'error', title: 'Denied', text: data.error, confirmButtonColor: '#6B4226'}); }
-                clearPin();
-            })
-            .catch(err => { alert("Connection Error: " + err.message); clearPin(); });
+            // NEW: Added Confirmation Popup!
+            Swal.fire({
+                title: 'Confirm Timeclock',
+                text: 'Do you want to clock in/out with this PIN?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Yes, Proceed',
+                confirmButtonColor: '#8D6E63'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    
+                    Swal.fire({title:'Processing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+                    
+                    fetch('api/timeclock_pin.php', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ passcode: pin }) 
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if(data.success) {
+                            Swal.fire({
+                                icon: 'success', title: data.action === 'clocked_in' ? 'Clocked In' : 'Clocked Out',
+                                text: data.message, timer: 3000, showConfirmButton: false
+                            });
+                        } else { 
+                            Swal.fire({icon: 'error', title: 'Denied', text: data.error, confirmButtonColor: '#6B4226'}); 
+                        }
+                        clearPin();
+                    })
+                    .catch(err => { alert("Connection Error: " + err.message); clearPin(); });
+                }
+            });
         }
     </script>
 </body>

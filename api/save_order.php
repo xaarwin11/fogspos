@@ -86,8 +86,9 @@ try {
     $e_stmt->close();
     $m_stmt->close();
 
-    $ins_item = $mysqli->prepare("INSERT INTO order_items (order_id, product_id, variation_id, product_name, variation_name, base_price, modifier_total, discount_amount, discount_note, quantity, line_total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-    $upd_item = $mysqli->prepare("UPDATE order_items SET quantity = ?, line_total = ?, discount_amount = ?, discount_note = ? WHERE id = ?");
+    // FIX: Added item_notes to the queries!
+    $ins_item = $mysqli->prepare("INSERT INTO order_items (order_id, product_id, variation_id, product_name, variation_name, base_price, modifier_total, discount_amount, discount_note, item_notes, quantity, line_total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+    $upd_item = $mysqli->prepare("UPDATE order_items SET quantity = ?, line_total = ?, discount_amount = ?, discount_note = ?, item_notes = ? WHERE id = ?");
     $del_item = $mysqli->prepare("DELETE FROM order_items WHERE id = ?");
     $ins_mod  = $mysqli->prepare("INSERT INTO order_item_modifiers (order_item_id, modifier_id, name, price) VALUES (?, ?, ?, ?)");
     
@@ -97,11 +98,11 @@ try {
 
     $processed_ids = [];
 
-    // ONLY MANUAL ITEM-LEVEL DISCOUNTS APPLY HERE NOW
     foreach ($items as $item) {
         $p_id = (int)$item['id']; $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; $qty = (int)$item['qty'];
         $item_disc_amt = !empty($item['discount_amount']) ? (float)$item['discount_amount'] : 0.00;
         $item_disc_note = !empty($item['discount_note']) ? $item['discount_note'] : null;
+        $item_note = !empty($item['item_notes']) ? $item['item_notes'] : null; // NEW: Grab the note!
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
         $key = $p_id . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids);
@@ -128,11 +129,11 @@ try {
 
         if (isset($existing_map[$key])) {
             $existing_id = $existing_map[$key]['id'];
-            $upd_item->bind_param('iddsi', $qty, $line_total, $item_disc_amt, $item_disc_note, $existing_id);
+            $upd_item->bind_param('iddssi', $qty, $line_total, $item_disc_amt, $item_disc_note, $item_note, $existing_id);
             $upd_item->execute();
             $processed_ids[] = $existing_id;
         } else {
-            $ins_item->bind_param('iiissdddsid', $order_id, $p_id, $v_id, $p_name, $v_name, $base_p, $mod_total, $item_disc_amt, $item_disc_note, $qty, $line_total);
+            $ins_item->bind_param('iiissdddssid', $order_id, $p_id, $v_id, $p_name, $v_name, $base_p, $mod_total, $item_disc_amt, $item_disc_note, $item_note, $qty, $line_total);
             $ins_item->execute();
             $new_id = $mysqli->insert_id; $processed_ids[] = $new_id;
             foreach ($resolved_mods as $rm) { 
@@ -162,11 +163,7 @@ try {
     // ====================================================================
     // GLOBAL DISCOUNTS NOW CALCULATE IN MEMORY (NO DATABASE INJECTIONS)
     // ====================================================================
-    // ====================================================================
-    // GLOBAL DISCOUNTS NOW CALCULATE IN MEMORY (NO DATABASE INJECTIONS)
-    // ====================================================================
     if ($discount_id) {
-        // FIX: Removed the bad JSON column from the select query
         $d_stmt = $mysqli->prepare("SELECT type, value, target_type, name FROM discounts WHERE id = ?");
         $d_stmt->bind_param('i', $discount_id);
         $d_stmt->execute();
@@ -178,9 +175,9 @@ try {
             $multiplier = ($disc_val <= 1) ? $disc_val : ($disc_val / 100);
             $is_senior = (stripos(strtolower($d_data['name']), 'senior') !== false || $d_data['target_type'] === 'highest');
             
-            // FIX: Safely pull the target categories from the new Junction Table!
+            // FIX 1: Look for 'custom' to fetch the categories from the Junction Table!
             $target_cats = [];
-            if ($d_data['target_type'] === 'specific') {
+            if ($d_data['target_type'] === 'custom') { 
                 $dc_stmt = $mysqli->prepare("SELECT category_id FROM discount_categories WHERE discount_id = ?");
                 $dc_stmt->bind_param('i', $discount_id);
                 $dc_stmt->execute();
@@ -190,7 +187,6 @@ try {
             }
             
             if ($is_senior) {
-                // ... (Senior math remains exactly the same as your current file) ...
                 $food_items = []; $drink_items = [];
                 foreach ($db_items as $oi) {
                     if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue; 
@@ -221,8 +217,8 @@ try {
                     if ($target === 'all') $match = true;
                     else if ($target === 'food' && $oi['cat_type'] === 'food') $match = true;
                     else if ($target === 'drink' && $oi['cat_type'] === 'drink') $match = true;
-                    // FIX: Checking the perfectly formatted array from the junction table
-                    else if ($target === 'specific' && in_array((int)$oi['category_id'], $target_cats)) $match = true;
+                    // FIX 2: Look for 'custom' here when doing the math!
+                    else if ($target === 'custom' && in_array((int)$oi['category_id'], $target_cats)) $match = true;
 
                     if ($match) {
                         $subtotal_applicable += (float)$oi['line_total'];
@@ -233,25 +229,28 @@ try {
             }
         }
     } else if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
+        
         $c_type = $custom_discount['type'] ?? 'amount';
         $c_val = (float)($custom_discount['val'] ?? 0);
         $c_target = $custom_discount['target'] ?? 'all';
         $c_note = $custom_discount['note'] ?? 'Custom';
+        $c_target_cats = $custom_discount['target_cats'] ?? []; 
         
         $target_subtotal = 0; 
 
-        foreach ($db_items as $it) {
-            if ($it['category_id'] == $EXCLUDED_CATEGORY_ID) continue; 
+        foreach ($db_items as $oi) {
+            if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue;
             
             $match = false;
+            // FIX 3: Correctly check the One-Off target variables
             if ($c_target === 'all') $match = true;
-            else if ($c_target === 'food' && $it['cat_type'] === 'food') $match = true;
-            else if ($c_target === 'drink' && $it['cat_type'] === 'drink') $match = true;
-            else if ($c_target === 'specific' && !empty($custom_discount['target_cats']) && in_array($it['category_id'], $custom_discount['target_cats'])) $match = true;
-            
+            else if ($c_target === 'food' && $oi['cat_type'] === 'food') $match = true;
+            else if ($c_target === 'drink' && $oi['cat_type'] === 'drink') $match = true;
+            else if ($c_target === 'custom' && in_array((int)$oi['category_id'], $c_target_cats)) $match = true;
+
             if ($match) {
-                $item_raw_total = (float)$it['unit_price'] * (int)$it['quantity'];
-                $target_subtotal += $item_raw_total;
+                // FIX 4: Correctly add to the One-Off subtotal
+                $target_subtotal += (float)$oi['line_total'];
             }
         }
 

@@ -350,7 +350,11 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 title: isEdit ? 'Edit Category' : 'New Category',
                 html: `
                     <input id="sw-name" class="swal2-input" placeholder="Name" value="${isEdit ? obj.name : ''}">
-                    <select id="sw-type" class="swal2-input"><option value="food" ${isEdit&&obj.cat_type==='food'?'selected':''}>Food</option><option value="drink" ${isEdit&&obj.cat_type==='drink'?'selected':''}>Drink</option></select>
+                    <select id="sw-type" class="swal2-input">
+                        <option value="food" ${isEdit&&obj.cat_type==='food'?'selected':''}>Food</option>
+                        <option value="drink" ${isEdit&&obj.cat_type==='drink'?'selected':''}>Drink</option>
+                        <option value="other" ${isEdit&&obj.cat_type==='other'?'selected':''}>Other / Custom</option>
+                    </select>
                     <div style="margin-top:15px; font-weight:bold; text-align:left;">Global Modifiers (Applies to all products here):</div>
                     <div style="border:1px solid #ddd; padding:10px; border-radius:8px; max-height:150px; overflow-y:auto;">${modHtml}</div>
                 `,
@@ -401,22 +405,23 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                     </select>
                     <input type="number" id="sw-val" class="swal2-input" placeholder="Value (e.g. 20)" step="0.01" value="${isEdit ? obj.value : ''}">
                     
-                    <select id="sw-tgt" class="swal2-input" onchange="document.getElementById('disc-cat-container').style.display = this.value === 'specific' ? 'block' : 'none'">
+                    <select id="sw-tgt" class="swal2-input" onchange="document.getElementById('disc-cat-container').style.display = this.value === 'custom' ? 'block' : 'none'">
                         <option value="all" ${isEdit && obj.target_type === 'all' ? 'selected' : ''}>Apply to Whole Bill</option>
                         <option value="highest" ${isEdit && obj.target_type === 'highest' ? 'selected' : ''}>Apply to Highest Item (SC/PWD Rule)</option>
-                        <option value="specific" ${isEdit && obj.target_type === 'specific' ? 'selected' : ''}>Specific Categories...</option>
+                        <option value="food" ${isEdit && obj.target_type === 'food' ? 'selected' : ''}>All Food Only</option>
+                        <option value="drink" ${isEdit && obj.target_type === 'drink' ? 'selected' : ''}>All Drinks Only</option>
+                        <option value="custom" ${isEdit && obj.target_type === 'custom' ? 'selected' : ''}>Specific Categories (Custom)...</option>
                     </select>
                     
-                    <div id="disc-cat-container" style="display:${isEdit && obj.target_type === 'specific' ? 'block' : 'none'}; border:1px solid #ddd; padding:10px; border-radius:8px; max-height:150px; overflow-y:auto; margin-top:10px; background:#f9fafb;">
+                    <div id="disc-cat-container" style="display:${isEdit && obj.target_type === 'custom' ? 'block' : 'none'}; border:1px solid #ddd; padding:10px; border-radius:8px; max-height:150px; overflow-y:auto; margin-top:10px; background:#f9fafb;">
                         <div style="font-weight:bold; margin-bottom:5px; text-align:left; color:var(--brand-dark);">Select Categories:</div>
                         ${catHtml}
                     </div>
                 `,
                 focusConfirm: false, showCancelButton: true, confirmButtonColor: '#6B4226',
                 preConfirm: () => { 
-                    // 2. Grab the checked categories if "specific" is chosen
                     let targetCats = [];
-                    if (document.getElementById('sw-tgt').value === 'specific') {
+                    if (document.getElementById('sw-tgt').value === 'custom') {
                         document.querySelectorAll('.disc-cat-cb:checked').forEach(cb => targetCats.push(parseInt(cb.value)));
                         if (targetCats.length === 0) { Swal.showValidationMessage('Select at least one category!'); return false; }
                     }
@@ -426,7 +431,7 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                         type: document.getElementById('sw-type').value, 
                         value: document.getElementById('sw-val').value, 
                         target_type: document.getElementById('sw-tgt').value,
-                        target_categories: targetCats // Send the array to the backend!
+                        target_categories: targetCats 
                     }; 
                 }
             });
