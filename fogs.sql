@@ -277,9 +277,8 @@ CREATE TABLE `discount_categories` (
   CONSTRAINT `fk_dc_category` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 2. Drop the bad JSON column
 ALTER TABLE `discounts` DROP COLUMN `target_categories`;
-
+ALTER TABLE users ADD COLUMN pin_length TINYINT(2) UNSIGNED NULL AFTER passcode;
 --
 -- Indexes for table `audit_log`
 --

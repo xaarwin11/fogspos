@@ -188,8 +188,9 @@ try {
             if ($id) {
                 if (!empty($pin)) {
                     $hash = password_hash($pin, PASSWORD_DEFAULT);
-                    $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, passcode=? WHERE id=?");
-                    $stmt->bind_param('sssisi', $username, $first_name, $last_name, $role_id, $hash, $id);
+                    $pin_len = strlen($pin); // NEW: Count the PIN
+                    $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, passcode=?, pin_length=? WHERE id=?");
+                    $stmt->bind_param('sssisii', $username, $first_name, $last_name, $role_id, $hash, $pin_len, $id);
                 } else {
                     $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=? WHERE id=?");
                     $stmt->bind_param('sssii', $username, $first_name, $last_name, $role_id, $id);
@@ -198,9 +199,11 @@ try {
             } else {
                 if (empty($pin)) throw new Exception("New staff must have a PIN.");
                 $hash = password_hash($pin, PASSWORD_DEFAULT);
-                $stmt = $mysqli->prepare("INSERT INTO users (username, first_name, last_name, role_id, passcode, is_active) VALUES (?, ?, ?, ?, ?, 1)");
-                $stmt->bind_param('sssis', $username, $first_name, $last_name, $role_id, $hash);
+                $pin_len = strlen($pin); // NEW: Count the PIN
+                $stmt = $mysqli->prepare("INSERT INTO users (username, first_name, last_name, role_id, passcode, pin_length, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)");
+                $stmt->bind_param('sssisi', $username, $first_name, $last_name, $role_id, $hash, $pin_len);
                 $stmt->execute();
+                $id = $mysqli->insert_id; // Keep this so the audit log works!
             }
 
             $ip = $_SERVER['REMOTE_ADDR'] ?? null;

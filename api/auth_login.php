@@ -52,13 +52,18 @@ try {
         }
     }
     $limit_stmt->close();
-    // ============================================================
-
-    // Fetch only what we need
-    $sql = "SELECT id, username, passcode, role_id FROM users WHERE is_active = 1";
-    $res = $mysqli->query($sql);
     
-    if (!$res) throw new Exception("Login query failed.");
+    // ============================================================
+    // THE BCRYPT LOOP WITH FAST PRE-FILTER
+    // ============================================================
+    $pin_len = strlen($pin);
+    
+    // THE FIX: Only fetch users whose PIN length matches (or is still NULL from the legacy system)
+    $sql = "SELECT id, username, passcode, role_id, pin_length FROM users WHERE is_active = 1 AND (pin_length = ? OR pin_length IS NULL)";
+    $stmt = $mysqli->prepare($sql);
+    $stmt->bind_param("i", $pin_len);
+    $stmt->execute();
+    $res = $stmt->get_result();
     
     $found = false;
     $auth_user = null;
@@ -67,9 +72,18 @@ try {
         if(password_verify($pin, $user['passcode'])) {
             $auth_user = $user;
             $found = true;
+            
+            // SILENT AUTO-HEAL: If they are a legacy user, save their PIN length for next time!
+            if ($user['pin_length'] === null) {
+                $upd = $mysqli->prepare("UPDATE users SET pin_length = ? WHERE id = ?");
+                $upd->bind_param("ii", $pin_len, $user['id']);
+                $upd->execute();
+                $upd->close();
+            }
             break;
         }
     }
+    $stmt->close();
     
     // ============================================================
     // SECURITY BLOCK 2: RECORD LOGIN RESULT
