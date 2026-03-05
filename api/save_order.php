@@ -162,8 +162,12 @@ try {
     // ====================================================================
     // GLOBAL DISCOUNTS NOW CALCULATE IN MEMORY (NO DATABASE INJECTIONS)
     // ====================================================================
+    // ====================================================================
+    // GLOBAL DISCOUNTS NOW CALCULATE IN MEMORY (NO DATABASE INJECTIONS)
+    // ====================================================================
     if ($discount_id) {
-        $d_stmt = $mysqli->prepare("SELECT type, value, target_type, target_categories, name FROM discounts WHERE id = ?");
+        // FIX: Removed the bad JSON column from the select query
+        $d_stmt = $mysqli->prepare("SELECT type, value, target_type, name FROM discounts WHERE id = ?");
         $d_stmt->bind_param('i', $discount_id);
         $d_stmt->execute();
         $d_data = $d_stmt->get_result()->fetch_assoc();
@@ -174,7 +178,19 @@ try {
             $multiplier = ($disc_val <= 1) ? $disc_val : ($disc_val / 100);
             $is_senior = (stripos(strtolower($d_data['name']), 'senior') !== false || $d_data['target_type'] === 'highest');
             
+            // FIX: Safely pull the target categories from the new Junction Table!
+            $target_cats = [];
+            if ($d_data['target_type'] === 'specific') {
+                $dc_stmt = $mysqli->prepare("SELECT category_id FROM discount_categories WHERE discount_id = ?");
+                $dc_stmt->bind_param('i', $discount_id);
+                $dc_stmt->execute();
+                $dc_res = $dc_stmt->get_result();
+                while($dc = $dc_res->fetch_assoc()) { $target_cats[] = (int)$dc['category_id']; }
+                $dc_stmt->close();
+            }
+            
             if ($is_senior) {
+                // ... (Senior math remains exactly the same as your current file) ...
                 $food_items = []; $drink_items = [];
                 foreach ($db_items as $oi) {
                     if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue; 
@@ -197,7 +213,6 @@ try {
             } else {
                 $subtotal_applicable = 0;
                 $target = $d_data['target_type'] ?? 'all';
-                $target_cats = !empty($d_data['target_categories']) ? json_decode($d_data['target_categories'], true) : [];
 
                 foreach ($db_items as $oi) {
                     if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue;
@@ -206,7 +221,8 @@ try {
                     if ($target === 'all') $match = true;
                     else if ($target === 'food' && $oi['cat_type'] === 'food') $match = true;
                     else if ($target === 'drink' && $oi['cat_type'] === 'drink') $match = true;
-                    else if ($target === 'specific' && is_array($target_cats) && in_array($oi['category_id'], $target_cats)) $match = true;
+                    // FIX: Checking the perfectly formatted array from the junction table
+                    else if ($target === 'specific' && in_array((int)$oi['category_id'], $target_cats)) $match = true;
 
                     if ($match) {
                         $subtotal_applicable += (float)$oi['line_total'];

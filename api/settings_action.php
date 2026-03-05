@@ -28,7 +28,7 @@ $mysqli = get_db_conn();
 
 function safeQuery($mysqli, $sql) {
     $res = $mysqli->query($sql);
-    if (!$res) throw new Exception("DB ERROR"); // Silenced exact error output for production
+    if (!$res) throw new Exception("DB ERROR"); 
     return $res->fetch_all(MYSQLI_ASSOC);
 }
 
@@ -42,17 +42,24 @@ try {
                 $c['modifiers'] = array_column($mods, 'modifier_id');
             }
 
+            // FIX: Query the discounts BEFORE building the JSON array!
+            $discounts = safeQuery($mysqli, "SELECT * FROM discounts ORDER BY name ASC");
+            foreach ($discounts as &$d) {
+                $did = (int)$d['id'];
+                $cats = safeQuery($mysqli, "SELECT category_id FROM discount_categories WHERE discount_id = $did");
+                $d['target_categories'] = array_column($cats, 'category_id');
+            }
+
             echo json_encode([
                 'success' => true, 
                 'categories' => $categories,
                 'tables'     => safeQuery($mysqli, "SELECT t.id, t.table_number, IF(COUNT(o.id) > 0, 'occupied', 'open') as status FROM tables t LEFT JOIN orders o ON t.id = o.table_id AND o.status = 'open' GROUP BY t.id ORDER BY CAST(t.table_number AS UNSIGNED) ASC, t.table_number ASC"),
                 'modifiers'  => safeQuery($mysqli, "SELECT * FROM modifiers ORDER BY name ASC"),
-                'discounts'  => safeQuery($mysqli, "SELECT * FROM discounts ORDER BY name ASC"),
+                'discounts'  => $discounts, // Assign the variable here!
                 'roles'      => safeQuery($mysqli, "SELECT * FROM roles"),
                 'users'      => safeQuery($mysqli, "SELECT u.id, u.username, u.first_name, u.last_name, u.role_id, r.role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.is_active = 1 ORDER BY u.username ASC"),
                 'printers'   => safeQuery($mysqli, "SELECT * FROM printers WHERE is_active = 1 ORDER BY name ASC"),
                 'settings'   => safeQuery($mysqli, "SELECT * FROM system_settings"),
-                // NEW: Fetching Logs & Timesheets
                 'timesheets' => safeQuery($mysqli, "SELECT t.*, u.username FROM time_tracking t JOIN users u ON t.user_id = u.id ORDER BY t.clock_in DESC LIMIT 100"),
                 'audit_logs' => safeQuery($mysqli, "SELECT a.*, u.username FROM audit_log a JOIN users u ON a.user_id = u.id ORDER BY a.created_at DESC LIMIT 100")
             ]);
@@ -63,7 +70,6 @@ try {
         $input = json_decode(file_get_contents('php://input'), true);
         $action = $input['action'] ?? '';
 
-        // --- 100% PREPARED STATEMENTS APPLIED BELOW ---
         if ($action === 'save_category') {
             $id = !empty($input['id']) ? (int)$input['id'] : null;
             $name = $input['name']; $type = $input['cat_type']; $mods = $input['modifiers'] ?? [];
@@ -140,13 +146,30 @@ try {
         if ($action === 'save_discount') { 
             $id = !empty($input['id']) ? (int)$input['id'] : null;
             $name = $input['name']; $type = $input['type']; $val = (float)$input['value']; $target = $input['target_type'];
+            $target_categories = $input['target_categories'] ?? []; // Pull the array from JS
+
             if ($id) {
                 $stmt = $mysqli->prepare("UPDATE discounts SET name=?, type=?, value=?, target_type=? WHERE id=?");
                 $stmt->bind_param('ssdsi', $name, $type, $val, $target, $id); $stmt->execute();
             } else { 
                 $stmt = $mysqli->prepare("INSERT INTO discounts (name, type, value, target_type, is_active) VALUES (?, ?, ?, ?, 1)");
                 $stmt->bind_param('ssds', $name, $type, $val, $target); $stmt->execute();
+                $id = $mysqli->insert_id;
             }
+            
+            // FIX: Rebuild the Junction Table mappings
+            $d_stmt = $mysqli->prepare("DELETE FROM discount_categories WHERE discount_id = ?");
+            $d_stmt->bind_param('i', $id); $d_stmt->execute();
+            
+            if ($target === 'specific' && !empty($target_categories)) {
+                $i_stmt = $mysqli->prepare("INSERT INTO discount_categories (discount_id, category_id) VALUES (?, ?)");
+                foreach($target_categories as $cat_id) {
+                    $c_id = (int)$cat_id;
+                    $i_stmt->bind_param('ii', $id, $c_id);
+                    $i_stmt->execute();
+                }
+            }
+
             echo json_encode(['success' => true]); exit;
         }
 
@@ -179,16 +202,16 @@ try {
                 $stmt->bind_param('sssis', $username, $first_name, $last_name, $role_id, $hash);
                 $stmt->execute();
             }
-            // --- ADD THIS RIGHT BEFORE THE ECHO ---
+
             $ip = $_SERVER['REMOTE_ADDR'] ?? null;
-            $action = $id ? 'user_updated' : 'user_created';
+            $action_log = $id ? 'user_updated' : 'user_created';
             $target_id = $id ? $id : $mysqli->insert_id;
             $details = json_encode(['username' => $username, 'role_id' => $role_id]);
             
             $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, ?, 'user', ?, ?, ?, NOW())");
-            $log_stmt->bind_param('isiss', $_SESSION['user_id'], $action, $target_id, $details, $ip);
+            $log_stmt->bind_param('isiss', $_SESSION['user_id'], $action_log, $target_id, $details, $ip);
             $log_stmt->execute();
-            // --------------------------------------
+
             echo json_encode(['success' => true]); exit;
         }
 
@@ -221,19 +244,16 @@ try {
             $stmt = $mysqli->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?");
             foreach ($settings as $key => $val) { $stmt->bind_param('ss', $val, $key); $stmt->execute(); }
             
-            // --- ADD THIS LOG ---
             $ip = $_SERVER['REMOTE_ADDR'] ?? null;
             $details = json_encode(['updated_keys' => array_keys($settings)]);
             $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, details, ip_address, created_at) VALUES (?, 'setting_changed', ?, ?, NOW())");
             $log_stmt->bind_param('iss', $_SESSION['user_id'], $details, $ip);
             $log_stmt->execute();
-            // --------------------
             
             echo json_encode(['success' => true]); exit;
         }
         
         if ($action === 'get_payroll') {
-            // Append times to make sure it covers the full days
             $start = $input['start_date'] . ' 00:00:00';
             $end = $input['end_date'] . ' 23:59:59';
             
@@ -254,5 +274,6 @@ try {
     }
     echo json_encode(['success' => false, 'error' => 'Invalid action']);
 } catch (Exception $e) { 
-    echo json_encode(['success' => false, 'error' => 'A system error occurred. Check server logs.']); // Hides detailed SQL errors
+    echo json_encode(['success' => false, 'error' => 'A system error occurred. Check server logs.']); 
 }
+?>

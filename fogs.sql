@@ -268,6 +268,17 @@ CREATE TABLE `view_table_status` (
 ,`current_total` decimal(10,2)
 ,`status` varchar(9)
 );
+-- 1. Create the Junction Table
+CREATE TABLE `discount_categories` (
+  `discount_id` int(10) UNSIGNED NOT NULL,
+  `category_id` int(10) UNSIGNED NOT NULL,
+  PRIMARY KEY (`discount_id`, `category_id`),
+  CONSTRAINT `fk_dc_discount` FOREIGN KEY (`discount_id`) REFERENCES `discounts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_dc_category` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. Drop the bad JSON column
+ALTER TABLE `discounts` DROP COLUMN `target_categories`;
 
 --
 -- Indexes for table `audit_log`

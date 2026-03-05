@@ -11,7 +11,6 @@ if (empty($_SESSION['user_id']) && empty($_SESSION['public_csrf'])) {
 try {
     $mysqli = get_db_conn();
 
-    // THE FIX: Check for the "?all=1" URL parameter, ignore user role!
     $show_all = (isset($_GET['all']) && $_GET['all'] == '1');
     $where_clause = $show_all ? "WHERE 1=1" : "WHERE p.available = 1";
 
@@ -56,12 +55,22 @@ try {
     foreach ($products as &$p) { $p['modifiers'] = array_values(array_unique($p['modifiers'])); }
 
     $all_mods = $mysqli->query("SELECT id, name, price FROM modifiers WHERE is_active = 1")->fetch_all(MYSQLI_ASSOC);
-    $discounts = $mysqli->query("SELECT * FROM discounts WHERE is_active = 1")->fetch_all(MYSQLI_ASSOC);
     $categories = $mysqli->query("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC")->fetch_all(MYSQLI_ASSOC);
 
+    // FIX: Assemble the target categories for the discounts array!
+    $discounts = $mysqli->query("SELECT id, name, type, value, target_type FROM discounts WHERE is_active = 1")->fetch_all(MYSQLI_ASSOC);
+    foreach ($discounts as &$d) {
+        $did = (int)$d['id'];
+        $cats = $mysqli->query("SELECT category_id FROM discount_categories WHERE discount_id = $did")->fetch_all(MYSQLI_ASSOC);
+        $d['target_categories'] = array_column($cats, 'category_id');
+    }
+
     echo json_encode([
-        'success' => true, 'products' => array_values($products),
-        'modifiers' => $all_mods, 'discounts' => $discounts, 'categories' => $categories
+        'success' => true, 
+        'products' => array_values($products),
+        'modifiers' => $all_mods, 
+        'discounts' => $discounts, 
+        'categories' => $categories
     ]);
     exit; 
 } catch (Exception $e) {
