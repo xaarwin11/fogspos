@@ -47,6 +47,13 @@ try {
         $stmt->bind_param('i', $id);
         $stmt->execute();
 
+        // --- NEW: LOG PERMANENT DELETION ---
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, ip_address, created_at) VALUES (?, 'product_deleted', 'product', ?, ?, NOW())");
+        $log_stmt->bind_param('iis', $_SESSION['user_id'], $id, $ip);
+        $log_stmt->execute();
+        // -----------------------------------
+
         echo json_encode(['success' => true, 'message' => 'Product removed permanently.']);
     }
 

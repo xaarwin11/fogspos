@@ -93,6 +93,15 @@ try {
         $_SESSION['role'] = $role_res['role_name'] ?? 'staff';
         $r_stmt->close();
         
+        // --- NEW: LOG THE LOGIN TO AUDIT LOG ---
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $details = json_encode(['role' => $_SESSION['role']]);
+        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, details, ip_address, created_at) VALUES (?, 'login', ?, ?, NOW())");
+        $log_stmt->bind_param('iss', $_SESSION['user_id'], $details, $ip);
+        $log_stmt->execute();
+        $log_stmt->close();
+        // ---------------------------------------
+        
         if (empty($_SESSION['csrf_token'])) { 
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); 
         }

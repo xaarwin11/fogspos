@@ -56,9 +56,9 @@ try {
     $change = ($amount > $balance) ? ($amount - $balance) : 0;
     $net_payment = $amount - $change;
 
-    // FIX: Simplified Insert (Removed processed_by and audit_log to prevent crashes)
-    $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, created_at) VALUES (?, ?, ?, ?, NOW())");
-    $p_stmt->bind_param('isdd', $order_id, $method, $amount, $change);
+    // FIX 1: Save to payments ledger WITH the cashier's user ID (processed_by)
+    $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+    $p_stmt->bind_param('isddi', $order_id, $method, $amount, $change, $_SESSION['user_id']);
     $p_stmt->execute();
     $p_stmt->close();
 
@@ -72,6 +72,14 @@ try {
     } else {
         $is_fully_paid = false;
     }
+
+    // FIX 2: Security Camera - Log this exact action to the audit_log!
+    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+    $details = json_encode(['method' => $method, 'tendered' => $amount, 'net' => $net_payment, 'full_paid' => $is_fully_paid]);
+    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'payment', 'order', ?, ?, ?, NOW())");
+    $log_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $details, $ip_address);
+    $log_stmt->execute();
+    $log_stmt->close();
 
     $mysqli->commit();
 

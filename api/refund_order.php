@@ -62,16 +62,17 @@ try {
     }
     $ins_pay->close();
 
-    // 4. Update the order status
-    $upd_stmt = $mysqli->prepare("UPDATE orders SET status = 'refunded', updated_at = NOW() WHERE id = ?");
-    $upd_stmt->bind_param('i', $order_id);
+    // 4. Update the order status AND save the Manager ID & Reason!
+    $upd_stmt = $mysqli->prepare("UPDATE orders SET status = 'refunded', voided_by = ?, void_reason = ?, updated_at = NOW() WHERE id = ?");
+    $upd_stmt->bind_param('isi', $manager_id, $reason, $order_id);
     $upd_stmt->execute();
     $upd_stmt->close();
 
     // 5. Log the Audit Event
     $details = json_encode(['reason' => $reason, 'manager_id' => $manager_id]);
-    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details) VALUES (?, 'refund', 'order', ?, ?)");
-    $log_stmt->bind_param('iis', $manager_id, $order_id, $details);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'refund', 'order', ?, ?, ?, NOW())");
+    $log_stmt->bind_param('iiss', $manager_id, $order_id, $details, $ip);
     $log_stmt->execute();
     $log_stmt->close();
 

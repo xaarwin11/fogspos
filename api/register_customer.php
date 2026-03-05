@@ -34,6 +34,17 @@ try {
     $stmt->bind_param("sss", $name, $phone, $hashed_pin);
     
     if ($stmt->execute()) {
+        $customer_id = $mysqli->insert_id;
+        
+        // --- NEW: LOG CUSTOMER CREATION ---
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $details = json_encode(['customer_name' => $name, 'phone' => $phone]);
+        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'user_created', 'customer', ?, ?, ?, NOW())");
+        $log_stmt->bind_param('iiss', $_SESSION['user_id'], $customer_id, $details, $ip);
+        $log_stmt->execute();
+        $log_stmt->close();
+        // ----------------------------------
+        
         echo json_encode(['success' => true, 'message' => 'Customer registered successfully!']);
     } else {
         echo json_encode(['success' => false, 'error' => 'Could not save customer.']);

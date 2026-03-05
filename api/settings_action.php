@@ -179,6 +179,16 @@ try {
                 $stmt->bind_param('sssis', $username, $first_name, $last_name, $role_id, $hash);
                 $stmt->execute();
             }
+            // --- ADD THIS RIGHT BEFORE THE ECHO ---
+            $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+            $action = $id ? 'user_updated' : 'user_created';
+            $target_id = $id ? $id : $mysqli->insert_id;
+            $details = json_encode(['username' => $username, 'role_id' => $role_id]);
+            
+            $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, ?, 'user', ?, ?, ?, NOW())");
+            $log_stmt->bind_param('isiss', $_SESSION['user_id'], $action, $target_id, $details, $ip);
+            $log_stmt->execute();
+            // --------------------------------------
             echo json_encode(['success' => true]); exit;
         }
 
@@ -210,6 +220,15 @@ try {
             $settings = $input['settings'] ?? [];
             $stmt = $mysqli->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?");
             foreach ($settings as $key => $val) { $stmt->bind_param('ss', $val, $key); $stmt->execute(); }
+            
+            // --- ADD THIS LOG ---
+            $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+            $details = json_encode(['updated_keys' => array_keys($settings)]);
+            $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, details, ip_address, created_at) VALUES (?, 'setting_changed', ?, ?, NOW())");
+            $log_stmt->bind_param('iss', $_SESSION['user_id'], $details, $ip);
+            $log_stmt->execute();
+            // --------------------
+            
             echo json_encode(['success' => true]); exit;
         }
         

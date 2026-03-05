@@ -264,6 +264,27 @@ try {
     $fin_stmt->execute();
     $fin_stmt->close();
 
+    // --- NEW: AUDIT LOGGING FOR ORDERS & DISCOUNTS ---
+    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    
+    // 1. Log Order Creation (if this is a brand new order)
+    if (empty($input['order_id'])) {
+        $details = json_encode(['table_id' => $table_id, 'type' => $order_type]);
+        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'order_created', 'order', ?, ?, ?, NOW())");
+        $log_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $details, $ip);
+        $log_stmt->execute();
+    }
+
+    // 2. Log Discount Application (if any global discount was applied)
+    if ($total_order_discount > 0) {
+        $disc_details = json_encode(['amount' => $total_order_discount, 'note' => $discount_note]);
+        $disc_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'discount_applied', 'order', ?, ?, ?, NOW())");
+        $disc_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $disc_details, $ip);
+        $disc_stmt->execute();
+    }
+    // -------------------------------------------------
+
+    $mysqli->commit();
     $mysqli->commit();
     echo json_encode(['success' => true, 'order_id' => $order_id, 'total' => number_format($grand_total, 2)]);
 } catch (Exception $e) {

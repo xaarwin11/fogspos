@@ -41,7 +41,17 @@ try {
     // 3. Get the new table number to update the screen
     $t = $mysqli->query("SELECT table_number FROM tables WHERE id = $new_table_id")->fetch_assoc();
 
+    // --- NEW: AUDIT LOG FOR TRANSFERRED TABLES ---
+    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $details = json_encode(['action' => 'table_transfer', 'new_table' => $t['table_number']]);
+    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'order_updated', 'order', ?, ?, ?, NOW())");
+    $log_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $details, $ip);
+    $log_stmt->execute();
+    $log_stmt->close();
+    // ---------------------------------------------
+
     echo json_encode(['success' => true, 'new_table_name' => 'Table ' . $t['table_number']]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
+?>

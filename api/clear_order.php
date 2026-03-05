@@ -20,9 +20,20 @@ $order_id = !empty($input['order_id']) ? (int)$input['order_id'] : null;
 if ($order_id) {
     try {
         $mysqli = get_db_conn();
-        $stmt = $mysqli->prepare("DELETE FROM orders WHERE id = ?");
-        $stmt->bind_param('i', $order_id);
+        
+        // SECURITY CAMERA FOR VOIDED ORDERS
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $details = json_encode(['action' => 'cart_cleared']);
+        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'order_voided', 'order', ?, ?, ?, NOW())");
+        $log_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $details, $ip);
+        $log_stmt->execute();
+        $log_stmt->close();
+        
+        // THE FIX: Soft Delete! Update status to 'voided' and save who did it.
+        $stmt = $mysqli->prepare("UPDATE orders SET status = 'voided', voided_by = ?, void_reason = 'Cart Cleared by Cashier', updated_at = NOW() WHERE id = ?");
+        $stmt->bind_param('ii', $_SESSION['user_id'], $order_id);
         $stmt->execute();
+        
         echo json_encode(['success' => true]);
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => 'Database error.']);
