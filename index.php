@@ -125,39 +125,63 @@ if (isset($_SESSION['user_id'])) {
                 return;
             }
 
-            // NEW: Added Confirmation Popup!
-            Swal.fire({
-                title: 'Confirm Timeclock',
-                text: 'Do you want to clock in/out with this PIN?',
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonText: 'Yes, Proceed',
-                confirmButtonColor: '#8D6E63'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    
-                    Swal.fire({title:'Processing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-                    
-                    fetch('api/timeclock_pin.php', { 
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ passcode: pin }) 
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.success) {
-                            Swal.fire({
-                                icon: 'success', title: data.action === 'clocked_in' ? 'Clocked In' : 'Clocked Out',
-                                text: data.message, timer: 3000, showConfirmButton: false
-                            });
-                        } else { 
-                            Swal.fire({icon: 'error', title: 'Denied', text: data.error, confirmButtonColor: '#6B4226'}); 
-                        }
-                        clearPin();
-                    })
-                    .catch(err => { alert("Connection Error: " + err.message); clearPin(); });
+            Swal.fire({title:'Checking status...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+
+            // STEP 1: Fetch their current status first
+            fetch('api/timeclock_pin.php', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passcode: pin, action: 'status' }) 
+            })
+            .then(r => r.json())
+            .then(statusData => {
+                if (!statusData.success) {
+                    Swal.fire({icon: 'error', title: 'Denied', text: statusData.error, confirmButtonColor: '#6B4226'});
+                    clearPin();
+                    return;
                 }
-            });
+
+                // STEP 2: Dynamically build the popup based on their status!
+                const isClockedIn = statusData.is_clocked_in;
+                const actionText = isClockedIn ? 'Clock Out' : 'Clock In';
+                const actionColor = isClockedIn ? '#d33' : '#2e7d32';
+                
+                Swal.fire({
+                    title: actionText + '?',
+                    html: `Hello <b>${statusData.username}</b>!<br>Are you sure you want to <b>${actionText.toUpperCase()}</b>?`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: `Yes, ${actionText}`,
+                    confirmButtonColor: actionColor
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({title:'Processing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+                        
+                        // STEP 3: Execute the actual timeclock punch
+                        fetch('api/timeclock_pin.php', { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ passcode: pin, action: 'toggle' }) 
+                        })
+                        .then(r => r.json())
+                        .then(data => {
+                            if(data.success) {
+                                Swal.fire({
+                                    icon: 'success', title: data.action === 'clocked_in' ? 'Clocked In' : 'Clocked Out',
+                                    text: data.message, timer: 3000, showConfirmButton: false
+                                });
+                            } else { 
+                                Swal.fire({icon: 'error', title: 'Error', text: data.error, confirmButtonColor: '#6B4226'}); 
+                            }
+                            clearPin();
+                        })
+                        .catch(err => { alert("Connection Error: " + err.message); clearPin(); });
+                    } else {
+                        clearPin(); // clear PIN if they click Cancel
+                    }
+                });
+            })
+            .catch(err => { alert("Connection Error: " + err.message); clearPin(); });
         }
     </script>
 </body>
