@@ -57,22 +57,15 @@ A robust, web-based Point of Sale (POS) system custom-built for **FogsTasa's Caf
 ## 🚀 Installation & Setup
 
 1. **Clone & Serve:** Place the repository in your web server directory (e.g., Apache/Nginx on Proxmox/Linux).
-2. **Database Import:** Import the provided SQL schema into your MariaDB instance. Ensure the `view_table_status` View is created.
-3. **Enable Background Automation (Crucial):** Run this command in your database's SQL console to allow the system to self-heal Ghost Shifts:
-   ```sql
-   SET GLOBAL event_scheduler = ON;
-
-```
-
-4. **Dependencies:** Run `composer install` in the root directory to install the Mike42 ESC/POS library.
+2. **Database Import:** Import the provided `fogs.sql` schema into your MariaDB instance. 
+   *(Note: This file automatically configures your `view_table_status` View and turns on the `event_scheduler` for the autonomous Ghost Shift cleanup).*
+3. **Configuration:** * Update `db.php` with your database credentials.
+   * Ensure your PHP environment has `display_errors = 0` in production for security.
+4. **Printers:** Assign your thermal printer IPs (e.g., `192.168.1.100`) via the system settings table for Kitchen, Bar, and Receipt routing.
 5. **Default Login:** Select Admin and use PIN: 1234 (Please change this immediately after your first login!)
-6. **Configuration:** * Update `db.php` with your database credentials.
-* Ensure your PHP environment has `display_errors = 0` in production for security.
 
-
-7. **Printers:** Assign your thermal printer IPs (e.g., `192.168.1.100`) via the system settings table for Kitchen, Bar, and Receipt routing.
-*To use your own logo replace the current files with the image of yours*
-*Color and theme change is not yet available*
+   *To use your own logo replace the current files with the image of yours*
+   *Color and theme change is not yet available*
 
 ---
 
