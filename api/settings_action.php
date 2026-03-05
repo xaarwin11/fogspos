@@ -255,6 +255,43 @@ try {
             
             echo json_encode(['success' => true]); exit;
         }
+
+        // --- ENTERPRISE TIMECARD EDITING & AUDIT ---
+        if ($action === 'save_timesheet') {
+            $id = (int)$input['id'];
+            $clock_in = $input['clock_in'];
+            $clock_out = !empty($input['clock_out']) ? $input['clock_out'] : null;
+
+            if ($clock_out) {
+                // If they are clocking out, MySQL instantly recalculates the hour decimal
+                $stmt = $mysqli->prepare("UPDATE time_tracking SET clock_in = ?, clock_out = ?, hours_worked = ROUND(TIMESTAMPDIFF(SECOND, ?, ?) / 3600, 2) WHERE id = ?");
+                $stmt->bind_param('ssssi', $clock_in, $clock_out, $clock_in, $clock_out, $id);
+            } else {
+                // Reset to an open shift
+                $stmt = $mysqli->prepare("UPDATE time_tracking SET clock_in = ?, clock_out = NULL, hours_worked = NULL WHERE id = ?");
+                $stmt->bind_param('si', $clock_in, $id);
+            }
+            $stmt->execute();
+            $stmt->close();
+
+            // TAMPER LOG: Automatically flag that an admin manually changed a timecard
+            $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+            $details = json_encode(['action' => 'manager_edited_timecard', 'clock_in' => $clock_in, 'clock_out' => $clock_out]);
+            $log = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'setting_changed', 'time_tracking', ?, ?, ?, NOW())");
+            $log->bind_param('iiss', $_SESSION['user_id'], $id, $details, $ip);
+            $log->execute();
+            $log->close();
+
+            echo json_encode(['success' => true]); exit;
+        }
+
+        if ($action === 'delete_timesheet') {
+            $id = (int)$input['id'];
+            $stmt = $mysqli->prepare("DELETE FROM time_tracking WHERE id = ?");
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            echo json_encode(['success' => true]); exit;
+        }
         
         if ($action === 'get_payroll') {
             $start = $input['start_date'] . ' 00:00:00';

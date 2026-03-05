@@ -279,6 +279,23 @@ CREATE TABLE `discount_categories` (
 
 ALTER TABLE `discounts` DROP COLUMN `target_categories`;
 ALTER TABLE users ADD COLUMN pin_length TINYINT(2) UNSIGNED NULL AFTER passcode;
+
+-- 1. Turn on the background task runner
+SET GLOBAL event_scheduler = ON;
+
+-- 2. Create the Ghost Shift Auto-Catcher
+CREATE EVENT IF NOT EXISTS auto_close_ghost_shifts
+ON SCHEDULE EVERY 1 HOUR
+DO
+  UPDATE time_tracking 
+  SET clock_out = DATE_ADD(clock_in, INTERVAL 16 HOUR), hours_worked = 0 
+  WHERE clock_out IS NULL AND TIMESTAMPDIFF(HOUR, clock_in, NOW()) > 16;
+
+-- 3. Add the Payroll Settings keys to your system
+INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES 
+('payroll_reg_hours', '9'), 
+('payroll_ot_multiplier', '1.0');
+
 --
 -- Indexes for table `audit_log`
 --

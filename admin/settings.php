@@ -86,6 +86,11 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 <div class="sys-form-group"><label>Contact / Phone</label><input type="text" id="s_store_phone"></div>
                 <button class="btn success" style="width:100%; margin-top:10px;" onclick="saveSystemBatch(['store_name', 'store_address', 'store_phone'])">Save Business Info</button>
 
+                <div class="header-row" style="margin-top: 40px;"><h2>💰 Payroll & Overtime Rules</h2></div>
+                <div class="sys-form-group"><label>Max Regular Hours per Shift (e.g. 8 or 9)</label><input type="number" id="s_payroll_reg_hours" step="0.5" placeholder="9"></div>
+                <div class="sys-form-group"><label>Overtime Pay Multiplier (e.g. 1.25 for +25% pay)</label><input type="number" id="s_payroll_ot_multiplier" step="0.01" placeholder="1.0"></div>
+                <button class="btn success" style="width:100%; margin-top:10px;" onclick="saveSystemBatch(['payroll_reg_hours', 'payroll_ot_multiplier'])">Save Payroll Rules</button>
+
                 <div class="header-row" style="margin-top: 40px;"><h2>💾 System Backup</h2></div>
                 <p style="color:gray; font-size:0.95rem; margin-top:-10px; margin-bottom:15px;">Download a full, offline copy of your entire database (Menus, Sales, Settings) to your computer.</p>
                 <a href="../api/backup_db.php" class="btn" style="background:#005ce6; color:white; text-decoration:none; display:inline-block; text-align:center; width:100%;">📥 Download Full Backup (.sql)</a>
@@ -172,9 +177,7 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                                     <th>Clock In</th>
                                     <th>Clock Out</th>
                                     <th>Hours</th>
-                                    <th>Est. Pay</th>
-                                    <th>Status</th>
-                                </tr>
+                                    <th>Actions</th> </tr>
                             </thead>
                             <tbody id="ts-tbody"></tbody> </table>
                     </div>
@@ -271,13 +274,16 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             document.getElementById('s_store_name').value = getSet('store_name');
             document.getElementById('s_store_address').value = getSet('store_address');
             document.getElementById('s_store_phone').value = getSet('store_phone');
+            
+            // NEW: Bind Payroll Rules
+            document.getElementById('s_payroll_reg_hours').value = getSet('payroll_reg_hours') || '9';
+            document.getElementById('s_payroll_ot_multiplier').value = getSet('payroll_ot_multiplier') || '1.0';
 
             let pOptions = `<option value="0">None / Disabled</option>`;
             sd.printers.forEach(p => pOptions += `<option value="${p.id}">${p.name} (${p.path})</option>`);
             ['route_receipt', 'route_kitchen', 'route_bar'].forEach(k => {
                 const el = document.getElementById('s_' + k);
-                el.innerHTML = pOptions;
-                el.value = getSet(k) || '0';
+                el.innerHTML = pOptions; el.value = getSet(k) || '0';
             });
 
             let html = '';
@@ -307,17 +313,30 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             sd.users.forEach(u => html += `<tr><td style="font-weight:bold;">${u.username}</td><td>${u.role_name}</td><td class="action-links"><span class="edit" onclick='promptStaff(${JSON.stringify(u)})'>Edit</span><span class="delete" onclick="del('staff', ${u.id})">Delete</span></td></tr>`);
             document.getElementById('staff-tbody').innerHTML = html;
 
-            // RENDERING TIMESHEETS
+            // RENDERING TIMESHEETS WITH GHOST SHIFT WARNINGS
             html = '';
             sd.timesheets.forEach(t => {
                 const clockIn = new Date(t.clock_in).toLocaleString();
-                const clockOut = t.clock_out ? new Date(t.clock_out).toLocaleString() : '<span style="color:green; font-weight:bold;">Clocked In Now</span>';
-                const hours = t.hours_worked ? parseFloat(t.hours_worked).toFixed(2) + ' hrs' : '-';
-                html += `<tr><td style="font-weight:bold;">${t.username}</td><td>${clockIn}</td><td>${clockOut}</td><td style="color:var(--brand); font-weight:bold;">${hours}</td></tr>`;
+                const clockOut = t.clock_out ? new Date(t.clock_out).toLocaleString() : '<span style="color:var(--success); font-weight:bold;">Clocked In Now</span>';
+                
+                let hoursHtml = t.hours_worked ? `<td style="color:var(--brand); font-weight:bold;">${parseFloat(t.hours_worked).toFixed(2)} hrs</td>` : '<td>-</td>';
+                if (t.clock_out && parseFloat(t.hours_worked) === 0) {
+                    hoursHtml = `<td style="color:var(--danger); font-weight:bold;">⚠️ 0.00 (Ghost Shift)</td>`;
+                }
+                
+                html += `<tr>
+                    <td style="font-weight:bold;">${t.username}</td>
+                    <td>${clockIn}</td>
+                    <td>${clockOut}</td>
+                    ${hoursHtml}
+                    <td class="action-links">
+                        <span class="edit" onclick='promptTimesheet(${JSON.stringify(t)})'>Edit</span>
+                        <span class="delete" onclick="del('timesheet', ${t.id})">Delete</span>
+                    </td>
+                </tr>`;
             });
             document.getElementById('ts-tbody').innerHTML = html;
 
-            // RENDERING AUDIT LOGS
             html = '';
             sd.audit_logs.forEach(a => {
                 let formattedDetails = '';
@@ -496,6 +515,44 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             });
             if (form) save('printer', { id: isEdit ? obj.id : null, ...form });
         }
+        async function promptTimesheet(obj) {
+            // Convert MySQL datetime "YYYY-MM-DD HH:MM:SS" to standard browser format "YYYY-MM-DDTHH:MM"
+            const formatForInput = (dateStr) => {
+                if (!dateStr) return '';
+                return dateStr.replace(' ', 'T').substring(0, 16);
+            };
+
+            const inVal = formatForInput(obj.clock_in);
+            const outVal = formatForInput(obj.clock_out);
+
+            const { value: form } = await Swal.fire({
+                title: 'Edit Timecard',
+                html: `
+                    <div style="text-align:left; margin-bottom:15px; color:var(--brand-dark);"><b>Employee:</b> ${obj.username}</div>
+                    
+                    <div style="text-align:left; font-weight:bold; margin-bottom:5px;">Clock In</div>
+                    <input type="datetime-local" id="sw-cin" class="swal2-input" value="${inVal}" style="margin-top:0;">
+                    
+                    <div style="text-align:left; font-weight:bold; margin-bottom:5px; margin-top:20px;">Clock Out</div>
+                    <input type="datetime-local" id="sw-cout" class="swal2-input" value="${outVal}" style="margin-top:0;">
+                    <div style="font-size:0.8rem; color:var(--text-muted); text-align:left; margin-top:5px;">Leave blank if they are still currently working.</div>
+                `,
+                focusConfirm: false, showCancelButton: true, confirmButtonColor: '#6B4226',
+                preConfirm: () => {
+                    const cin = document.getElementById('sw-cin').value;
+                    const cout = document.getElementById('sw-cout').value;
+                    if (!cin) { Swal.showValidationMessage('Clock-In time is required!'); return false; }
+                    
+                    // Convert back to MySQL format
+                    const mysqlIn = cin.replace('T', ' ') + ':00';
+                    const mysqlOut = cout ? (cout.replace('T', ' ') + ':00') : null;
+
+                    return { id: obj.id, clock_in: mysqlIn, clock_out: mysqlOut };
+                }
+            });
+
+            if (form) save('timesheet', form);
+        }
 
         // --- CORE LOGIC ---
         async function save(type, payload) {
@@ -524,6 +581,7 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             const data = await res.json();
             if (data.success) { Swal.fire({icon: 'success', title: 'Updated Successfully', timer: 1000, showConfirmButton: false}); loadData(); }
         }
+        
         async function generatePayroll() {
             const start = document.getElementById('pr-start').value;
             const end = document.getElementById('pr-end').value;
@@ -542,6 +600,10 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             if (data.success) {
                 let staffMap = {};
 
+                // NEW: Fetch the live rules from the database memory!
+                const regHrsLimit = parseFloat(sd.settings.find(x => x.setting_key === 'payroll_reg_hours')?.setting_value) || 9;
+                const otMultiplier = parseFloat(sd.settings.find(x => x.setting_key === 'payroll_ot_multiplier')?.setting_value) || 1.0;
+
                 // 1. Group shifts and split Regular vs Overtime
                 data.records.forEach(r => {
                     const uid = r.user_id;
@@ -549,16 +611,19 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                     const rate = parseFloat(r.hourly_rate) || 0;
                     const shiftHrs = parseFloat(r.hours_worked) || 0;
                     
+                    // Skip mathematically dead ghost shifts
+                    if (shiftHrs <= 0) return; 
+                    
                     if (!staffMap[uid]) {
                         staffMap[uid] = { name: name, rate: rate, shifts: 0, reg: 0, ot: 0 };
                     }
 
                     staffMap[uid].shifts += 1;
                     
-                    // SMART CAPPING: Max 9 hours regular, the rest is OT
-                    if (shiftHrs > 9) {
-                        staffMap[uid].reg += 9;
-                        staffMap[uid].ot += (shiftHrs - 9);
+                    // SMART CAPPING: Uses your dynamic limit!
+                    if (shiftHrs > regHrsLimit) {
+                        staffMap[uid].reg += regHrsLimit;
+                        staffMap[uid].ot += (shiftHrs - regHrsLimit);
                     } else {
                         staffMap[uid].reg += shiftHrs;
                     }
@@ -569,9 +634,9 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 let totalPayout = 0;
 
                 Object.values(staffMap).forEach(s => {
-                    // Assuming you pay the same rate for OT. You can do (s.ot * s.rate * 1.25) if you pay extra for OT!
+                    // NEW: Calculate the OT using your dynamic multiplier!
                     const regPay = s.reg * s.rate;
-                    const otPay = s.ot * s.rate; 
+                    const otPay = s.ot * (s.rate * otMultiplier); 
                     const gross = regPay + otPay;
                     totalPayout += gross;
 
@@ -592,7 +657,7 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 }
 
                 document.getElementById('pr-tbody').innerHTML = html;
-                document.getElementById('print-payroll-area').style.display = 'block'; // Make it visible to the screen and printer
+                document.getElementById('print-payroll-area').style.display = 'block';
             }
         }
     </script>
