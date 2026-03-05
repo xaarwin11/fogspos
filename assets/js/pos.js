@@ -80,43 +80,80 @@ function renderProducts() {
     }
 }
 
-async function handleProductSelection(p) {
+// ============================================================================
+// REUSABLE HELPER: Handles Size & Add-on Modals for both Adding and Editing
+// ============================================================================
+window.selectProductOptions = async function(p, preselectedVarId = null, preselectedModIds = []) {
+    let result = { canceled: false, variation_id: null, variation_name: null, price: parseFloat(p.price), modifiers: [] };
+
+    // 1. VARIATIONS MODAL
+    if (p.variations && p.variations.length > 0) {
+        const { value: vId, isDismissed } = await Swal.fire({
+            title: 'Select Size',
+            html: `
+                <div class="var-grid">
+                    ${p.variations.map(v => {
+                        let isActive = (preselectedVarId == v.id) ? 'active' : '';
+                        return `<div class="var-btn size-btn ${isActive}" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`
+                    }).join('')}
+                </div>
+                <input type="hidden" id="swal-v" value="${preselectedVarId || ''}">
+            `,
+            preConfirm: () => document.getElementById('swal-v').value || Swal.showValidationMessage('Please select a size'),
+            confirmButtonColor: '#6B4226', showCancelButton: true
+        });
+        if (isDismissed || !vId) return { canceled: true };
+        const v = p.variations.find(v => v.id == vId);
+        result.variation_id = v.id; result.variation_name = v.name; result.price = parseFloat(v.price);
+    }
+
+    // 2. MODIFIERS MODAL
+    const pMods = p.modifiers || [];
+    if (pMods.length > 0) {
+        const allowed = state.modifiers.filter(m => pMods.includes(Number(m.id)) || pMods.includes(String(m.id)));
+        if (allowed.length > 0) {
+            const { value: selectedMods, isDismissed } = await Swal.fire({
+                title: preselectedModIds.length > 0 ? 'Update Add-ons' : 'Add-ons?',
+                html: `<div class="swal-list">${allowed.map(m => {
+                    const isChecked = preselectedModIds.includes(m.id) ? 'checked' : '';
+                    return `<label class="swal-check" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;"><span>${m.name} (+₱${m.price})</span><input type="checkbox" class="mod-cb" value="${m.id}" data-name="${m.name}" data-price="${m.price}" ${isChecked}></label>`;
+                }).join('')}</div>`,
+                preConfirm: () => Array.from(document.querySelectorAll('.mod-cb:checked')).map(i => ({ id: parseInt(i.value), name: i.dataset.name, price: parseFloat(i.dataset.price) })),
+                confirmButtonColor: '#6B4226', showCancelButton: true
+            });
+            
+            // If they cancel during an edit, preserve original mods. If new, keep it empty.
+            if (isDismissed) {
+                if (preselectedModIds.length > 0) {
+                    result.modifiers = preselectedModIds.map(id => allowed.find(m => m.id == id)).filter(Boolean).map(m => ({id: parseInt(m.id), name: m.name, price: parseFloat(m.price)}));
+                }
+            } else {
+                result.modifiers = selectedMods || [];
+            }
+        }
+    }
+    return result;
+};
+
+// ============================================================================
+// ADD ITEM TO CART (Uses the new DRY helper)
+// ============================================================================
+window.handleProductSelection = async function(p) {
     if (state.mode === 'dine_in' && !state.activeTableId) return Swal.fire('Table Required', 'Select a table first', 'warning');
     if (state.mode === 'takeout' && !state.activeOrderId && state.activeOrderId !== 'new') return Swal.fire('Takeout Required', 'Create a new takeout order first', 'warning');
 
     let item = { id: p.id, name: p.name, price: parseFloat(p.price), qty: 1, variation_id: null, variation_name: null, modifiers: [], discount_amount: 0, discount_note: '' };
 
-    if (p.variations && p.variations.length > 0) {
-        const { value: vId } = await Swal.fire({
-            title: 'Select Size',
-            html: `
-                <div class="var-grid">
-                    ${p.variations.map(v => `<div class="var-btn size-btn" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`).join('')}
-                </div>
-                <input type="hidden" id="swal-v">
-            `,
-            preConfirm: () => document.getElementById('swal-v').value || Swal.showValidationMessage('Please select a size'),
-            confirmButtonColor: '#6B4226', showCancelButton: true
-        });
-        if (!vId) return;
-        const v = p.variations.find(v => v.id == vId);
-        item.variation_id = v.id; item.variation_name = v.name;
-        item.name = `${p.name} (${v.name})`; item.price = parseFloat(v.price);
-    }
+    const options = await window.selectProductOptions(p);
+    if (options.canceled) return;
 
-    const pMods = p.modifiers || [];
-    if (pMods.length > 0) {
-        const allowed = state.modifiers.filter(m => pMods.includes(Number(m.id)) || pMods.includes(String(m.id)));
-        if (allowed.length > 0) {
-            const { value: selectedMods } = await Swal.fire({
-                title: 'Add-ons?',
-                html: `<div class="swal-list">${allowed.map(m => `<label class="swal-check" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;"><span>${m.name} (+₱${m.price})</span><input type="checkbox" class="mod-cb" value="${m.id}" data-name="${m.name}" data-price="${m.price}"></label>`).join('')}</div>`,
-                preConfirm: () => Array.from(document.querySelectorAll('.mod-cb:checked')).map(i => ({ id: parseInt(i.value), name: i.dataset.name, price: parseFloat(i.dataset.price) })),
-                confirmButtonColor: '#6B4226'
-            });
-            if (selectedMods) item.modifiers = selectedMods;
-        }
+    if (options.variation_id) {
+        item.variation_id = options.variation_id;
+        item.variation_name = options.variation_name;
+        item.name = `${p.name} (${options.variation_name})`;
+        item.price = options.price;
     }
+    item.modifiers = options.modifiers;
 
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
     const uniqueKey = `${item.id}-${item.variation_id}-${modKey}`;
@@ -126,12 +163,14 @@ async function handleProductSelection(p) {
     else state.cart.push(item);
     
     renderCart();
-}
+};
 
-function renderCart() {
+// ============================================================================
+// RENDER CART (Performance patched using an Array instead of innerHTML loops)
+// ============================================================================
+window.renderCart = function() {
     const con = document.getElementById('cartContainer');
     if (!con) return;
-    con.innerHTML = '';
     
     let rawSubtotal = 0;
     let localItemDiscountSum = 0;
@@ -139,6 +178,8 @@ function renderCart() {
     if (state.cart.length === 0) {
         con.innerHTML = '<div style="text-align:center; padding:40px; color:#ccc; font-size:1.1rem;">🛒 Cart is empty</div>';
     } else {
+        let cartHTML = []; // FIX: Memory Array for lightning-fast DOM injection
+        
         state.cart.forEach((item, idx) => {
             const mCost = item.modifiers.reduce((s, m) => s + m.price, 0);
             const rawLineTotal = (item.price + mCost) * item.qty;
@@ -147,7 +188,7 @@ function renderCart() {
             localItemDiscountSum += parseFloat(item.discount_amount) || 0;
             const discountBadge = item.discount_amount > 0 ? `<div style="font-size:0.75rem; color:var(--danger); margin-top:2px;">Includes ${item.discount_note || 'Discount'}</div>` : '';
 
-            con.innerHTML += `
+            cartHTML.push(`
                 <div class="bill-item" style="padding: 10px 0; border-bottom: 1px dashed var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                     <div style="flex:1; line-height: 1.2;">
                         <div style="font-weight:700; font-size:0.95rem; cursor:pointer; color:var(--text-main);" onclick="editCartItem(${idx})" title="Tap to edit">${item.name}</div>
@@ -164,14 +205,18 @@ function renderCart() {
                         <div style="color:var(--danger); font-size:0.7rem; font-weight:bold; cursor:pointer; margin-top:4px;" onclick="confirmRemoveItem(${idx})">✕ DEL</div>
                     </div>
                 </div>
-            `;
+            `);
         });
+        
+        con.innerHTML = cartHTML.join(''); // Push to DOM exactly ONCE
+        
         const btnTransfer = document.getElementById('btnTransfer');
         if (btnTransfer) {
             btnTransfer.style.display = (state.mode === 'dine_in' && state.activeOrderId && state.activeOrderId !== 'new') ? 'block' : 'none';
         }
     }
 
+    // --- Math & Global Discount Logic Remains the Same Below ---
     const totalCombinedDiscount = localItemDiscountSum + (parseFloat(state.discount_amount) || 0);
     state.grand_total = Math.max(0, rawSubtotal - totalCombinedDiscount);
 
@@ -181,12 +226,8 @@ function renderCart() {
 
     let discRow = document.getElementById('appliedDiscountRow');
     if (totalCombinedDiscount > 0) {
-        
-        // Relational Text Generation!
         let displayNote = 'Total Discount';
-        
         if (state.discount_id) {
-            // Find the name relationally from the database array
             const d = state.discounts.find(x => x.id == state.discount_id);
             if (d) displayNote = d.name + (d.type === 'percent' ? ` (${parseFloat(d.value)}%)` : '');
         } 
@@ -194,7 +235,7 @@ function renderCart() {
             displayNote = "Custom: " + state.custom_discount.note;
         } 
         else if (state.discount_note) {
-            displayNote = state.discount_note; // Fallback for legacy orders
+            displayNote = state.discount_note;
         }
 
         if (!discRow) {
@@ -208,7 +249,7 @@ function renderCart() {
             document.getElementById('txtDiscAmount').innerText = '-₱' + totalCombinedDiscount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
         }
     } else if (discRow) discRow.remove();
-}
+};
 
 window.updateQty = function(idx, delta) {
     const newQty = state.cart[idx].qty + delta;
@@ -246,49 +287,27 @@ window.editCartItem = async function(idx) {
     const p = state.products.find(x => x.id == item.id);
     if (!p) return;
     
-    let selectedVar = item.variation_id;
     let selectedMods = item.modifiers ? item.modifiers.map(m => m.id) : [];
 
-    if (p.variations && p.variations.length > 0) {
-        const { value: vId } = await Swal.fire({
-            title: 'Select Size',
-            html: `
-                <div class="var-grid">
-                    ${p.variations.map(v => `<div class="var-btn size-btn" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`).join('')}
-                </div>
-                <input type="hidden" id="swal-v">
-            `,
-            preConfirm: () => document.getElementById('swal-v').value || Swal.showValidationMessage('Please select a size'),
-            confirmButtonColor: '#6B4226', showCancelButton: true
-        });
-        if (!vId) return;
-        const v = p.variations.find(v => v.id == vId);
-        item.variation_id = v.id; item.variation_name = v.name;
-        item.name = `${p.name} (${v.name})`; item.price = parseFloat(v.price);
-    }
+    const options = await window.selectProductOptions(p, item.variation_id, selectedMods);
+    if (options.canceled) return; 
 
-    const pMods = p.modifiers || [];
-    if (pMods.length > 0) {
-        const allowed = state.modifiers.filter(m => pMods.includes(Number(m.id)) || pMods.includes(String(m.id)));
-        if (allowed.length > 0) {
-            const { value: newMods } = await Swal.fire({
-                title: 'Update Add-ons',
-                html: `<div class="swal-list">${allowed.map(m => {
-                    const isChecked = selectedMods.includes(m.id) ? 'checked' : '';
-                    return `<label class="swal-check" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;"><span>${m.name} (+₱${m.price})</span><input type="checkbox" class="mod-cb" value="${m.id}" data-name="${m.name}" data-price="${m.price}" ${isChecked}></label>`;
-                }).join('')}</div>`,
-                preConfirm: () => Array.from(document.querySelectorAll('.mod-cb:checked')).map(i => ({ id: parseInt(i.value), name: i.dataset.name, price: parseFloat(i.dataset.price) })),
-                confirmButtonColor: '#6B4226', showCancelButton: true
-            });
-            if (newMods) item.modifiers = newMods;
-        }
+    if (options.variation_id) {
+        item.variation_id = options.variation_id;
+        item.variation_name = options.variation_name;
+        item.name = `${p.name} (${options.variation_name})`;
+        item.price = options.price;
     }
+    item.modifiers = options.modifiers;
 
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
     const uniqueKey = `${item.id}-${item.variation_id}-${modKey}`;
     const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.modifiers.map(m=>m.id).sort().join(',')}` === uniqueKey);
     
-    if (dupIdx > -1) { state.cart[dupIdx].qty += item.qty; state.cart.splice(idx, 1); }
+    if (dupIdx > -1) { 
+        state.cart[dupIdx].qty += item.qty; 
+        state.cart.splice(idx, 1); 
+    }
     renderCart();
 };
 
