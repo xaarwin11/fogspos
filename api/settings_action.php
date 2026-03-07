@@ -244,8 +244,23 @@ try {
 
         if ($action === 'save_settings_batch') { 
             $settings = $input['settings'] ?? [];
-            $stmt = $mysqli->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?");
-            foreach ($settings as $key => $val) { $stmt->bind_param('ss', $val, $key); $stmt->execute(); }
+            
+            // FIX: Check if setting exists. If yes -> Update. If no -> Insert with 'business' category!
+            $check = $mysqli->prepare("SELECT setting_key FROM system_settings WHERE setting_key = ?");
+            $upd = $mysqli->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?");
+            $ins = $mysqli->prepare("INSERT INTO system_settings (setting_key, setting_value, category) VALUES (?, ?, 'business')");
+            
+            foreach ($settings as $key => $val) { 
+                $check->bind_param('s', $key);
+                $check->execute();
+                if ($check->get_result()->num_rows > 0) {
+                    $upd->bind_param('ss', $val, $key); 
+                    $upd->execute();
+                } else {
+                    $ins->bind_param('ss', $key, $val); 
+                    $ins->execute();
+                }
+            }
             
             $ip = $_SERVER['REMOTE_ADDR'] ?? null;
             $details = json_encode(['updated_keys' => array_keys($settings)]);

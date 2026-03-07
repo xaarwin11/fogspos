@@ -129,7 +129,7 @@ class PrinterService
             }
             
             $tax_status = $meta['TaxStatus'] ?? "NON-VAT Reg.";
-            $tin = $meta['TIN'] ?? "TIN: 000-000-000-000";
+            $tin = $meta['TIN'] ?? "";
             
             $this->printer->setEmphasis(true);
             $this->printer->text($tax_status . "\n"); 

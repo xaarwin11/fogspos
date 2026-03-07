@@ -5,12 +5,13 @@ session_start();
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
-if (empty($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'manager'])) { 
+if (empty($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'manager','staff'])) { 
     header("Location: ../pos/index.php"); 
     exit; 
 }
 if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
 
+$role= $_SESSION['role'];
 $mysqli = get_db_conn();
 
 $date = $_GET['date'] ?? date('Y-m-d');
@@ -121,11 +122,19 @@ try {
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Gross Sales</h3>
-                <div class="value">₱<?= number_format((float)($sales['total_sales'] ?? 0), 2) ?></div>
-                <div style="font-size:0.9rem; color:gray; margin-top:5px;">For <?= date('F d, Y', strtotime($date)) ?></div>
-            </div>
+            <?php if (in_array($role, ['admin', 'manager'])): ?>
+                <div class="stat-card">
+                    <h3>Gross Sales</h3>
+                    <div class="value">₱<?= number_format((float)($sales['total_sales'] ?? 0), 2) ?></div>
+                    <div style="font-size:0.9rem; color:gray; margin-top:5px;">For <?= date('F d, Y', strtotime($date)) ?></div>
+                </div>
+            <?php else: ?>
+                <div class="stat-card">
+                    <h3>My Sales Target</h3>
+                    <div class="value">🎯</div>
+                    <div style="font-size:0.9rem; color:gray; margin-top:5px;">Keep up the great work today!</div>
+                </div>
+            <?php endif; ?>
             
             <div class="stat-card">
                 <h3>Completed Orders</h3>
@@ -133,73 +142,77 @@ try {
                 <div style="font-size:0.9rem; color:gray; margin-top:5px;">Successfully paid and closed</div>
             </div>
             
-            <div class="stat-card">
-                <h3>Tender Breakdown</h3>
-                <div style="margin-top:10px;">
-                    <?php foreach($payments as $p): ?>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #eee; padding-bottom:5px;">
-                            <span style="text-transform:capitalize; color:var(--text-muted); font-weight:600;">
-                                <?= $p['method'] === 'cash' ? '💵' : ($p['method'] === 'gcash' ? '📱' : '💳') ?> <?= htmlspecialchars($p['method']) ?>
-                            </span>
-                            <span style="font-weight:bold; font-size:1.1rem; color:var(--text-main);">₱<?= number_format((float)$p['net_amount'], 2) ?></span>
-                        </div>
-                    <?php endforeach; ?>
-                    <?php if(empty($payments)) echo "<span style='color:gray; font-style:italic;'>No payments recorded yet.</span>"; ?>
+            <?php if (in_array($role, ['admin', 'manager'])): ?>
+                <div class="stat-card">
+                    <h3>Tender Breakdown</h3>
+                    <div style="margin-top:10px;">
+                        <?php foreach($payments as $p): ?>
+                            <div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #eee; padding-bottom:5px;">
+                                <span style="text-transform:capitalize; color:var(--text-muted); font-weight:600;">
+                                    <?= $p['method'] === 'cash' ? '💵' : ($p['method'] === 'gcash' ? '📱' : '💳') ?> <?= htmlspecialchars($p['method']) ?>
+                                </span>
+                                <span style="font-weight:bold; font-size:1.1rem; color:var(--text-main);">₱<?= number_format((float)$p['net_amount'], 2) ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php if(empty($payments)) echo "<span style='color:gray; font-style:italic;'>No payments recorded yet.</span>"; ?>
+                    </div>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
 
-        <h2 style="color:var(--brand-dark); margin-bottom:15px;">💰 Cash Drawer Shifts</h2>
-        <div class="table-responsive">
-            <table class="orders-table">
-                <thead>
-                    <tr>
-                        <th>Opened</th>
-                        <th>Float</th>
-                        <th>Closed</th>
-                        <th>Expected</th>
-                        <th>Counted</th>
-                        <th>Variance</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach($shifts as $s): ?>
-                    <tr>
-                        <td>
-                            <strong><?= date('h:i A', strtotime($s['opened_at'])) ?></strong><br>
-                            <span style="font-size:0.8rem; color:gray;">By <?= htmlspecialchars($s['opener'] ?? 'Unknown') ?></span>
-                        </td>
-                        <td>₱<?= number_format((float)$s['opening_cash'], 2) ?></td>
-                        <td>
-                            <?php if(isset($s['status']) && $s['status'] === 'open'): ?>
-                                <span class="status-badge status-open">CURRENTLY OPEN</span>
-                            <?php else: ?>
-                                <strong><?= date('h:i A', strtotime($s['closed_at'] ?? 'now')) ?></strong><br>
-                                <span style="font-size:0.8rem; color:gray;">By <?= htmlspecialchars($s['closer'] ?? 'Unknown') ?></span>
-                            <?php endif; ?>
-                        </td>
-                        <td><?= isset($s['expected_cash']) ? '₱'.number_format((float)$s['expected_cash'], 2) : '-' ?></td>
-                        <td><?= isset($s['actual_cash']) ? '₱'.number_format((float)$s['actual_cash'], 2) : '-' ?></td>
-                        <td>
-                            <?php if(isset($s['variance'])): ?>
-                                <?php if($s['variance'] < 0): ?>
-                                    <strong style="color:red;">Short ₱<?= number_format(abs($s['variance']), 2) ?></strong>
-                                <?php elseif($s['variance'] > 0): ?>
-                                    <strong style="color:blue;">Over ₱<?= number_format($s['variance'], 2) ?></strong>
+        <?php if (in_array($role, ['admin', 'manager'])): ?>
+            <h2 style="color:var(--brand-dark); margin-bottom:15px;">💰 Cash Drawer Shifts</h2>
+            <div class="table-responsive">
+                <table class="orders-table">
+                    <thead>
+                        <tr>
+                            <th>Opened</th>
+                            <th>Float</th>
+                            <th>Closed</th>
+                            <th>Expected</th>
+                            <th>Counted</th>
+                            <th>Variance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($shifts as $s): ?>
+                        <tr>
+                            <td>
+                                <strong><?= date('h:i A', strtotime($s['opened_at'])) ?></strong><br>
+                                <span style="font-size:0.8rem; color:gray;">By <?= htmlspecialchars($s['opener'] ?? 'Unknown') ?></span>
+                            </td>
+                            <td>₱<?= number_format((float)$s['opening_cash'], 2) ?></td>
+                            <td>
+                                <?php if(isset($s['status']) && $s['status'] === 'open'): ?>
+                                    <span class="status-badge status-open">CURRENTLY OPEN</span>
                                 <?php else: ?>
-                                    <strong style="color:green;">Perfect</strong>
+                                    <strong><?= date('h:i A', strtotime($s['closed_at'] ?? 'now')) ?></strong><br>
+                                    <span style="font-size:0.8rem; color:gray;">By <?= htmlspecialchars($s['closer'] ?? 'Unknown') ?></span>
                                 <?php endif; ?>
-                            <?php else: echo "-"; endif; ?>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <?php if(empty($shifts)): ?>
-                    <tr><td colspan="6" style="text-align:center; padding:20px; color:gray;">No register shifts recorded for this date.</td></tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-
+                            </td>
+                            <td><?= isset($s['expected_cash']) ? '₱'.number_format((float)$s['expected_cash'], 2) : '-' ?></td>
+                            <td><?= isset($s['actual_cash']) ? '₱'.number_format((float)$s['actual_cash'], 2) : '-' ?></td>
+                            <td>
+                                <?php if(isset($s['variance'])): ?>
+                                    <?php if($s['variance'] < 0): ?>
+                                        <strong style="color:red;">Short ₱<?= number_format(abs($s['variance']), 2) ?></strong>
+                                    <?php elseif($s['variance'] > 0): ?>
+                                        <strong style="color:blue;">Over ₱<?= number_format($s['variance'], 2) ?></strong>
+                                    <?php else: ?>
+                                        <strong style="color:green;">Perfect</strong>
+                                    <?php endif; ?>
+                                <?php else: echo "-"; endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php if(empty($shifts)): ?>
+                        <tr><td colspan="6" style="text-align:center; padding:20px; color:gray;">No register shifts recorded for this date.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+        
         <h2 style="color:var(--brand-dark); margin-bottom:15px;">Order History</h2>
         <div class="table-responsive">
             <table class="orders-table">

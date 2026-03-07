@@ -139,6 +139,10 @@ async function manageRegister() {
                     <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2rem;">
                         <span>Expected in Drawer:</span> <span>₱${data.expected_cash.toFixed(2)}</span>
                     </div>
+                    
+                    <button type="button" onclick="viewXReport()" style="width:100%; margin-top:15px; background:#4b5563; color:white; border:none; padding:10px; border-radius:6px; font-weight:bold; cursor:pointer;">
+                        👁️ View Mid-Shift Read (X-Report)
+                    </button>
                 </div>
                 <label style="font-weight:bold; display:block; text-align:left;">Enter Physical Cash Counted:</label>
                 <input type="number" id="counted-cash" class="swal2-input" placeholder="0.00" step="0.01">
@@ -205,5 +209,54 @@ async function manageRegister() {
             }
         }
     } catch(e) { console.error(e); Swal.fire('Error', 'Connection failed', 'error'); }
+}
+
+async function viewXReport() {
+    Swal.fire({title: 'Calculating...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+    try {
+        const res = await fetch('../api/get_xreport.php'); 
+        const data = await res.json();
+        
+        if (data.success) {
+            // Build a beautiful digital receipt modal
+            const html = `
+                <div style="text-align:left; font-family:monospace; font-size:1.1rem; background:#f9fafb; padding:20px; border-radius:8px; border:1px solid #ddd;">
+                    <div style="text-align:center; font-weight:bold; margin-bottom:10px;">MID-SHIFT READ</div>
+                    <div><b>Staff:</b> ${data.opener}</div>
+                    <div><b>Started:</b> ${data.opened_at}</div>
+                    <hr style="border:0; border-top:1px dashed #ccc; margin:10px 0;">
+                    
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>Opening Float:</span> <span>₱${data.opening_cash.toFixed(2)}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; color:green;">
+                        <span>Cash Sales:</span> <span>+₱${data.gross_cash.toFixed(2)}</span>
+                    </div>
+                    ${data.cash_refunds < 0 ? `
+                    <div style="display:flex; justify-content:space-between; color:red;">
+                        <span>Refunds Paid:</span> <span>-₱${Math.abs(data.cash_refunds).toFixed(2)}</span>
+                    </div>` : ''}
+                    
+                    <hr style="border:0; border-top:1px dashed #ccc; margin:10px 0;">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.3rem; color:var(--brand-dark);">
+                        <span>EXPECTED CASH:</span> <span>₱${data.expected.toFixed(2)}</span>
+                    </div>
+                </div>
+            `;
+            
+            Swal.fire({
+                title: false,
+                html: html,
+                confirmButtonText: 'Done',
+                confirmButtonColor: '#2e7d32',
+                width: 400
+            });
+            
+        } else {
+            Swal.fire('Failed', data.error || 'Unknown error', 'error');
+        }
+    } catch(e) { 
+        Swal.fire('Error', 'Could not reach server.', 'error'); 
+    }
 }
 </script>

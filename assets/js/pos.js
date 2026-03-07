@@ -83,65 +83,93 @@ function renderProducts() {
 // ============================================================================
 // REUSABLE HELPER: Now includes Item Notes!
 // ============================================================================
-window.selectProductOptions = async function(p, preselectedVarId = null, preselectedModIds = [], preselectedNote = '') {
+window.selectProductOptions = async function(p, preselectedVarId = null, preselectedModIds = [], preselectedNote = '', showNotes = true) {
     let result = { canceled: false, variation_id: null, variation_name: null, price: parseFloat(p.price), modifiers: [], item_notes: preselectedNote };
 
-    if (p.variations && p.variations.length > 0) {
-        const { value: vId, isDismissed } = await Swal.fire({
-            title: 'Select Size',
-            html: `
-                <div class="var-grid">
-                    ${p.variations.map(v => {
-                        let isActive = (preselectedVarId == v.id) ? 'active' : '';
-                        return `<div class="var-btn size-btn ${isActive}" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`
-                    }).join('')}
-                </div>
-                <input type="hidden" id="swal-v" value="${preselectedVarId || ''}">
-            `,
-            preConfirm: () => document.getElementById('swal-v').value || Swal.showValidationMessage('Please select a size'),
-            confirmButtonColor: '#6B4226', showCancelButton: true
-        });
-        if (isDismissed || !vId) return { canceled: true };
-        const v = p.variations.find(v => v.id == vId);
-        result.variation_id = v.id; result.variation_name = v.name; result.price = parseFloat(v.price);
+    let htmlContent = '';
+    let hasVariations = p.variations && p.variations.length > 0;
+
+    // 1. BUILD SIZES / VARIATIONS HTML
+    if (hasVariations) {
+        htmlContent += `
+            <div style="font-weight:bold; text-align:left; margin-bottom:5px; color:var(--brand-dark);">Select Size:</div>
+            <div class="var-grid" style="margin-bottom: 20px;">
+                ${p.variations.map(v => {
+                    let isActive = (preselectedVarId == v.id) ? 'active' : '';
+                    return `<div class="var-btn size-btn ${isActive}" data-id="${v.id}" onclick="document.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active')); this.classList.add('active'); document.getElementById('swal-v').value=this.dataset.id;">${v.name}<span class="price">₱${parseFloat(v.price).toFixed(2)}</span></div>`
+                }).join('')}
+            </div>
+            <input type="hidden" id="swal-v" value="${preselectedVarId || ''}">
+        `;
     }
 
-    // THE FIX: Always show the Add-ons OR Notes modal!
+    // 2. BUILD ADD-ONS / MODIFIERS HTML
     const pMods = p.modifiers || [];
-    let modHtml = '';
     const allowed = state.modifiers.filter(m => pMods.includes(Number(m.id)) || pMods.includes(String(m.id)));
     
     if (allowed.length > 0) {
-        modHtml = `<div class="swal-list">${allowed.map(m => {
-            const isChecked = preselectedModIds.includes(m.id) ? 'checked' : '';
+        htmlContent += `<div style="font-weight:bold; text-align:left; margin-bottom:5px; color:var(--brand-dark);">Add-ons:</div>`;
+        htmlContent += `<div class="swal-list" style="margin-bottom: 20px;">${allowed.map(m => {
+            const isChecked = preselectedModIds.includes(Number(m.id)) ? 'checked' : '';
             return `<label class="swal-check" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;"><span>${m.name} (+₱${m.price})</span><input type="checkbox" class="mod-cb" value="${m.id}" data-name="${m.name}" data-price="${m.price}" ${isChecked}></label>`;
         }).join('')}</div>`;
     }
 
-    const { value: optionsData, isDismissed: modDismissed } = await Swal.fire({
-        title: preselectedModIds.length > 0 ? 'Update Options' : 'Options & Notes',
-        html: `
-            ${modHtml}
-            <textarea id="swal-note" placeholder="Special Instructions (e.g. No onions, Extra ice)..." style="width:100%; box-sizing:border-box; margin-top:15px; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;">${preselectedNote || ''}</textarea>
-        `,
+    // 3. BUILD NOTES HTML (Only if showNotes is true)
+    if (showNotes) {
+        htmlContent += `
+            <div style="font-weight:bold; text-align:left; margin-bottom:5px; color:var(--brand-dark);">Special Instructions:</div>
+            <textarea id="swal-note" placeholder="e.g. No onions, half sweet..." style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;">${preselectedNote || ''}</textarea>
+        `;
+    } else {
+        htmlContent += `<input type="hidden" id="swal-note" value="">`;
+    }
+
+    // FAST-TRACK: If item has no sizes, no add-ons, and notes are hidden, skip popup entirely!
+    if (!hasVariations && allowed.length === 0 && !showNotes) {
+        return result; 
+    }
+
+    const titleText = preselectedModIds.length > 0 || preselectedNote || preselectedVarId ? 'Edit Item' : 'Customize Item';
+
+    // 4. FIRE THE SINGLE COMBINED MODAL
+    const { value: optionsData, isDismissed } = await Swal.fire({
+        title: titleText,
+        html: htmlContent,
         preConfirm: () => {
+            let vId = null;
+            if (hasVariations) {
+                vId = document.getElementById('swal-v').value;
+                if (!vId) {
+                    Swal.showValidationMessage('Please select a size');
+                    return false;
+                }
+            }
+
             let mods = [];
             if (allowed.length > 0) {
                 mods = Array.from(document.querySelectorAll('.mod-cb:checked')).map(i => ({ id: parseInt(i.value), name: i.dataset.name, price: parseFloat(i.dataset.price) }));
             }
-            return { mods: mods, note: document.getElementById('swal-note').value };
+
+            return { vId: vId, mods: mods, note: document.getElementById('swal-note').value };
         },
-        confirmButtonColor: '#6B4226', showCancelButton: true
+        confirmButtonColor: '#6B4226', 
+        showCancelButton: true
     });
     
-    if (modDismissed) {
-        if (preselectedModIds.length > 0) {
-            result.modifiers = preselectedModIds.map(id => allowed.find(m => m.id == id)).filter(Boolean).map(m => ({id: parseInt(m.id), name: m.name, price: parseFloat(m.price)}));
-        }
-    } else {
-        result.modifiers = optionsData.mods || [];
-        result.item_notes = optionsData.note || null;
+    if (isDismissed || !optionsData) return { canceled: true };
+    
+    // Apply selected variation
+    if (hasVariations) {
+        const selectedVar = p.variations.find(v => v.id == optionsData.vId);
+        result.variation_id = selectedVar.id;
+        result.variation_name = selectedVar.name;
+        result.price = parseFloat(selectedVar.price);
     }
+
+    // Apply modifiers and notes
+    result.modifiers = optionsData.mods || [];
+    result.item_notes = optionsData.note || null;
     
     return result;
 };
@@ -152,7 +180,8 @@ window.handleProductSelection = async function(p) {
 
     let item = { id: p.id, name: p.name, price: parseFloat(p.price), qty: 1, variation_id: null, variation_name: null, modifiers: [], item_notes: null, discount_amount: 0, discount_note: '' };
 
-    const options = await window.selectProductOptions(p);
+    // PASS 'false' to hide notes when first adding!
+    const options = await window.selectProductOptions(p, null, [], '', false);
     if (options.canceled) return;
 
     if (options.variation_id) {
@@ -162,9 +191,8 @@ window.handleProductSelection = async function(p) {
         item.price = options.price;
     }
     item.modifiers = options.modifiers;
-    item.item_notes = options.item_notes; // SAVE NOTE
+    item.item_notes = options.item_notes; // Will be empty
 
-    // Notes make an item strictly unique (prevent merging)
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
     const uniqueKey = `${item.id}-${item.variation_id}-${modKey}-${item.item_notes || ''}`;
     const existingIndex = state.cart.findIndex(i => `${i.id}-${i.variation_id}-${i.modifiers.map(m => m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
@@ -303,7 +331,8 @@ window.editCartItem = async function(idx) {
     
     let selectedMods = item.modifiers ? item.modifiers.map(m => m.id) : [];
 
-    const options = await window.selectProductOptions(p, item.variation_id, selectedMods, item.item_notes);
+    // PASS 'true' to show notes when editing in the cart!
+    const options = await window.selectProductOptions(p, item.variation_id, selectedMods, item.item_notes, true);
     if (options.canceled) return; 
 
     if (options.variation_id) {
@@ -313,7 +342,7 @@ window.editCartItem = async function(idx) {
         item.price = options.price;
     }
     item.modifiers = options.modifiers;
-    item.item_notes = options.item_notes; // UPDATE NOTE
+    item.item_notes = options.item_notes; // Updates the note
 
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
     const uniqueKey = `${item.id}-${item.variation_id}-${modKey}-${item.item_notes || ''}`;

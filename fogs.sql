@@ -279,6 +279,7 @@ CREATE TABLE `discount_categories` (
 
 ALTER TABLE `discounts` DROP COLUMN `target_categories`;
 ALTER TABLE users ADD COLUMN pin_length TINYINT(2) UNSIGNED NULL AFTER passcode;
+ALTER TABLE order_items ADD COLUMN item_notes VARCHAR(255) NULL AFTER discount_note;
 
 -- 1. Turn on the background task runner
 SET GLOBAL event_scheduler = ON;

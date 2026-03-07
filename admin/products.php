@@ -2,7 +2,7 @@
 require_once '../db.php';
 session_start();
 if (empty($_SESSION['user_id'])) { header("Location: ../index.php"); exit; }
-if (!in_array($_SESSION['role'], ['admin','manager'])) { header("Location: ../index.php"); exit; }
+if (!in_array($_SESSION['role'], ['admin','manager','staff'])) { header("Location: ../index.php"); exit; }
 if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
 
 $mysqli = get_db_conn();
