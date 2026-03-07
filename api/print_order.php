@@ -136,6 +136,10 @@ try {
         'Store'   => $biz['store_name'] ?? "FogsTasa's Cafe",
         'Address' => $biz['store_address'] ?? '',
         'Phone'   => $biz['store_phone'] ?? '',
+        // NEW: Pass the TIN and Tax Status to the Printer Service!
+        'TIN'       => $biz['store_tin'] ?? 'TIN: 000-000-000-000',
+        'TaxStatus' => $biz['tax_status'] ?? 'NON-VAT Reg.',
+        // --------------------------------------------------------
         'Type'    => strtoupper($order_meta['order_type'] ?? 'DINE_IN'),
         'Table'   => $order_meta['table_number'] ?? '',
         'Staff'   => $_SESSION['username'] ?? 'Staff',
@@ -146,7 +150,6 @@ try {
         'OrderDiscountNote' => $order_meta['discount_note'],
         'DiscountLabel' => $discount_label,
         'SC_Records' => $sc_records,
-        // Hand the pre-calculated split to the printer!
         'SC_ItemCount' => $sc_item_count,
         'SC_ItemTotal' => $sc_item_total,
         'Reg_ItemCount' => $reg_item_count,

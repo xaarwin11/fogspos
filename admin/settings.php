@@ -84,7 +84,11 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 <div class="sys-form-group"><label>Store Name</label><input type="text" id="s_store_name"></div>
                 <div class="sys-form-group"><label>Store Address</label><input type="text" id="s_store_address"></div>
                 <div class="sys-form-group"><label>Contact / Phone</label><input type="text" id="s_store_phone"></div>
-                <button class="btn success" style="width:100%; margin-top:10px;" onclick="saveSystemBatch(['store_name', 'store_address', 'store_phone'])">Save Business Info</button>
+                
+                <div class="sys-form-group"><label>TIN (Tax ID Number)</label><input type="text" id="s_store_tin" placeholder="e.g. TIN: 123-456-789-000"></div>
+                <div class="sys-form-group"><label>Tax Status Label</label><input type="text" id="s_tax_status" placeholder="e.g. NON-VAT Reg."></div>
+                
+                <button class="btn success" style="width:100%; margin-top:10px;" onclick="saveSystemBatch(['store_name', 'store_address', 'store_phone', 'store_tin', 'tax_status'])">Save Business Info</button>
 
                 <div class="header-row" style="margin-top: 40px;"><h2>💰 Payroll & Overtime Rules</h2></div>
                 <div class="sys-form-group"><label>Max Regular Hours per Shift (e.g. 8 or 9)</label><input type="number" id="s_payroll_reg_hours" step="0.5" placeholder="9"></div>
@@ -274,6 +278,10 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             document.getElementById('s_store_name').value = getSet('store_name');
             document.getElementById('s_store_address').value = getSet('store_address');
             document.getElementById('s_store_phone').value = getSet('store_phone');
+            
+            // NEW: Bind the TIN and Tax Status
+            document.getElementById('s_store_tin').value = getSet('store_tin');
+            document.getElementById('s_tax_status').value = getSet('tax_status');
             
             // NEW: Bind Payroll Rules
             document.getElementById('s_payroll_reg_hours').value = getSet('payroll_reg_hours') || '9';
