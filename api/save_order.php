@@ -80,13 +80,13 @@ try {
         $m_res = $m_stmt->get_result();
         $m_ids = []; while($m = $m_res->fetch_assoc()) $m_ids[] = $m['modifier_id'];
         
-        $key = $row['product_id'] . '_' . ($row['variation_id'] ?? '0') . '_' . implode(',', $m_ids);
+        // Include product_id in key. If it's a custom item, product_id is null.
+        $key = ($row['product_id'] ?? 'custom') . '_' . ($row['variation_id'] ?? '0') . '_' . implode(',', $m_ids);
         $existing_map[$key] = $row;
     }
     $e_stmt->close();
     $m_stmt->close();
 
-    // FIX: Added item_notes to the queries!
     $ins_item = $mysqli->prepare("INSERT INTO order_items (order_id, product_id, variation_id, product_name, variation_name, base_price, modifier_total, discount_amount, discount_note, item_notes, quantity, line_total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
     $upd_item = $mysqli->prepare("UPDATE order_items SET quantity = ?, line_total = ?, discount_amount = ?, discount_note = ?, item_notes = ? WHERE id = ?");
     $del_item = $mysqli->prepare("DELETE FROM order_items WHERE id = ?");
@@ -99,19 +99,45 @@ try {
     $processed_ids = [];
 
     foreach ($items as $item) {
-        $p_id = (int)$item['id']; $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; $qty = (int)$item['qty'];
+        // ====================================================================
+        // FIX 1: THE OFF-MENU INTERCEPTOR
+        // ====================================================================
+        $is_custom = ($item['id'] === 'custom_item');
+        $p_id = $is_custom ? null : (int)$item['id']; // Leave product_id NULL in the database
+        
+        $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; 
+        $qty = (int)$item['qty'];
         $item_disc_amt = !empty($item['discount_amount']) ? (float)$item['discount_amount'] : 0.00;
         $item_disc_note = !empty($item['discount_note']) ? $item['discount_note'] : null;
-        $item_note = !empty($item['item_notes']) ? $item['item_notes'] : null; // NEW: Grab the note!
+        $item_note = !empty($item['item_notes']) ? $item['item_notes'] : null;
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
-        $key = $p_id . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids);
+        
+        // Use a safe key for custom items so they don't merge together by accident
+        $key = ($is_custom ? 'custom_' . md5($item['name']) : $p_id) . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids);
 
         $base_p = 0; $p_name = ''; $v_name = null;
-        $get_prod->bind_param('i', $p_id); $get_prod->execute();
-        if ($p_data = $get_prod->get_result()->fetch_assoc()) { $base_p = (float)$p_data['price']; $p_name = $p_data['name']; }
+        
+        if ($is_custom) {
+            // Off-Menu Item
+            $base_p = (float)$item['price'];
+            $p_name = $item['name'];
+        } else {
+            // Standard Database Item
+            $get_prod->bind_param('i', $p_id); $get_prod->execute();
+            if ($p_data = $get_prod->get_result()->fetch_assoc()) { 
+                $base_p = (float)$p_data['price']; 
+                $p_name = $p_data['name']; 
+                
+                // 🌟 THE VARIABLE ITEM RULE: 
+                // If the owner set the DB price to 0, trust the tablet's custom price!
+                if ($base_p == 0) {
+                    $base_p = (float)$item['price']; 
+                }
+            }
+        }
 
-        if ($v_id) {
+        if ($v_id && !$is_custom) {
             $get_var->bind_param('i', $v_id); $get_var->execute();
             if ($v_data = $get_var->get_result()->fetch_assoc()) { $base_p = (float)$v_data['price']; $v_name = $v_data['name']; }
         }
@@ -154,15 +180,15 @@ try {
     $global_discount_amount = 0;
     $EXCLUDED_CATEGORY_ID = 7; 
     
-    $oi_stmt = $mysqli->prepare("SELECT o.id, p.category_id, c.cat_type, (o.base_price + o.modifier_total) as unit_price, o.quantity, o.line_total FROM order_items o JOIN products p ON o.product_id = p.id JOIN categories c ON p.category_id = c.id WHERE o.order_id = ?");
+    // ====================================================================
+    // FIX 2: LEFT JOIN PREVENTS CUSTOM ITEMS FROM CRASHING THE DISCOUNT LOOP
+    // ====================================================================
+    $oi_stmt = $mysqli->prepare("SELECT o.id, COALESCE(p.category_id, 0) as category_id, COALESCE(c.cat_type, 'other') as cat_type, (o.base_price + o.modifier_total) as unit_price, o.quantity, o.line_total FROM order_items o LEFT JOIN products p ON o.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id WHERE o.order_id = ?");
     $oi_stmt->bind_param('i', $order_id);
     $oi_stmt->execute();
     $db_items = $oi_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $oi_stmt->close();
 
-    // ====================================================================
-    // GLOBAL DISCOUNTS NOW CALCULATE IN MEMORY (NO DATABASE INJECTIONS)
-    // ====================================================================
     if ($discount_id) {
         $d_stmt = $mysqli->prepare("SELECT type, value, target_type, name FROM discounts WHERE id = ?");
         $d_stmt->bind_param('i', $discount_id);
@@ -175,7 +201,6 @@ try {
             $multiplier = ($disc_val <= 1) ? $disc_val : ($disc_val / 100);
             $is_senior = (stripos(strtolower($d_data['name']), 'senior') !== false || $d_data['target_type'] === 'highest');
             
-            // FIX 1: Look for 'custom' to fetch the categories from the Junction Table!
             $target_cats = [];
             if ($d_data['target_type'] === 'custom') { 
                 $dc_stmt = $mysqli->prepare("SELECT category_id FROM discount_categories WHERE discount_id = ?");
@@ -217,7 +242,6 @@ try {
                     if ($target === 'all') $match = true;
                     else if ($target === 'food' && $oi['cat_type'] === 'food') $match = true;
                     else if ($target === 'drink' && $oi['cat_type'] === 'drink') $match = true;
-                    // FIX 2: Look for 'custom' here when doing the math!
                     else if ($target === 'custom' && in_array((int)$oi['category_id'], $target_cats)) $match = true;
 
                     if ($match) {
@@ -242,14 +266,12 @@ try {
             if ($oi['category_id'] == $EXCLUDED_CATEGORY_ID) continue;
             
             $match = false;
-            // FIX 3: Correctly check the One-Off target variables
             if ($c_target === 'all') $match = true;
             else if ($c_target === 'food' && $oi['cat_type'] === 'food') $match = true;
             else if ($c_target === 'drink' && $oi['cat_type'] === 'drink') $match = true;
             else if ($c_target === 'custom' && in_array((int)$oi['category_id'], $c_target_cats)) $match = true;
 
             if ($match) {
-                // FIX 4: Correctly add to the One-Off subtotal
                 $target_subtotal += (float)$oi['line_total'];
             }
         }
@@ -279,10 +301,8 @@ try {
     $fin_stmt->execute();
     $fin_stmt->close();
 
-    // --- NEW: AUDIT LOGGING FOR ORDERS & DISCOUNTS ---
     $ip = $_SERVER['REMOTE_ADDR'] ?? null;
     
-    // 1. Log Order Creation (if this is a brand new order)
     if (empty($input['order_id'])) {
         $details = json_encode(['table_id' => $table_id, 'type' => $order_type]);
         $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'order_created', 'order', ?, ?, ?, NOW())");
@@ -290,16 +310,13 @@ try {
         $log_stmt->execute();
     }
 
-    // 2. Log Discount Application (if any global discount was applied)
     if ($total_order_discount > 0) {
         $disc_details = json_encode(['amount' => $total_order_discount, 'note' => $discount_note]);
         $disc_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'discount_applied', 'order', ?, ?, ?, NOW())");
         $disc_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $disc_details, $ip);
         $disc_stmt->execute();
     }
-    // -------------------------------------------------
 
-    $mysqli->commit();
     $mysqli->commit();
     echo json_encode(['success' => true, 'order_id' => $order_id, 'total' => number_format($grand_total, 2)]);
 } catch (Exception $e) {

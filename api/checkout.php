@@ -20,6 +20,7 @@ $input = json_decode(file_get_contents('php://input'), true);
 $order_id = !empty($input['order_id']) ? (int)$input['order_id'] : null;
 $method = $input['method'] ?? 'cash';
 $amount = !empty($input['amount']) ? (float)$input['amount'] : 0;
+$tip = !empty($input['tip']) ? (float)$input['tip'] : 0; // NEW: Catch the tip!
 $customer_name = isset($input['customer_name']) ? $input['customer_name'] : null; 
 
 if (!$order_id) { echo json_encode(['success' => false, 'error' => 'Order ID is required.']); exit; }
@@ -53,10 +54,21 @@ try {
     if ($balance <= 0) throw new Exception("Order is already fully paid.");
     if ($amount <= 0) throw new Exception("Payment amount must be greater than zero.");
 
-    $change = ($amount > $balance) ? ($amount - $balance) : 0;
-    $net_payment = $amount - $change;
+    // NEW MATH: Change is calculated AFTER the tip is removed from the tendered amount!
+    $change = ($amount > ($balance + $tip)) ? ($amount - ($balance + $tip)) : 0;
+    
+    // The actual money going towards the food bill
+    $net_payment = $amount - $change - $tip; 
 
-    // FIX 1: Save to payments ledger WITH the cashier's user ID (processed_by)
+    // Save the Tip to the Orders table
+    if ($tip > 0) {
+        $t_stmt = $mysqli->prepare("UPDATE orders SET tip_amount = tip_amount + ? WHERE id = ?");
+        $t_stmt->bind_param('di', $tip, $order_id);
+        $t_stmt->execute();
+        $t_stmt->close();
+    }
+
+    // Save the Payment Ledger
     $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
     $p_stmt->bind_param('isddi', $order_id, $method, $amount, $change, $_SESSION['user_id']);
     $p_stmt->execute();
@@ -73,9 +85,9 @@ try {
         $is_fully_paid = false;
     }
 
-    // FIX 2: Security Camera - Log this exact action to the audit_log!
+    // Audit Log
     $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
-    $details = json_encode(['method' => $method, 'tendered' => $amount, 'net' => $net_payment, 'full_paid' => $is_fully_paid]);
+    $details = json_encode(['method' => $method, 'tendered' => $amount, 'tip' => $tip, 'net' => $net_payment, 'full_paid' => $is_fully_paid]);
     $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'payment', 'order', ?, ?, ?, NOW())");
     $log_stmt->bind_param('iiss', $_SESSION['user_id'], $order_id, $details, $ip_address);
     $log_stmt->execute();

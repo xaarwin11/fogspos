@@ -42,7 +42,10 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
 
     <div class="pos-container">
         <div class="products-section" style="display:flex; flex-direction:column; overflow:hidden;">
-            <input type="text" id="search" class="search-bar" placeholder="🔍 Search menu..." autocomplete="off">
+            <div style="display:flex; gap:10px; margin-bottom: 15px;">
+                <input type="text" id="search" class="search-bar" style="margin-bottom:0;" placeholder="🔍 Search menu..." autocomplete="off">
+                <button class="btn secondary" style="white-space:nowrap; font-weight:bold; padding:0 20px; border: 2px dashed #ccc;" onclick="addOpenItem()">+ Off-Menu Item</button>
+            </div>
             <div class="category-scroll" id="catContainer"></div>
             <div class="products-grid" id="prodContainer">
                 <div style="grid-column:1/-1; text-align:center; color:#999; margin-top:50px;">Loading Menu...</div>

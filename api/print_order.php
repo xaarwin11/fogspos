@@ -137,7 +137,7 @@ try {
         'Address' => $biz['store_address'] ?? '',
         'Phone'   => $biz['store_phone'] ?? '',
         // NEW: Pass the TIN and Tax Status to the Printer Service!
-        'TIN'       => $biz['store_tin'] ?? 'TIN: 000-000-000-000',
+        'TIN'       => $biz['store_tin'] ?? '',
         'TaxStatus' => $biz['tax_status'] ?? 'NON-VAT Reg.',
         // --------------------------------------------------------
         'Type'    => strtoupper($order_meta['order_type'] ?? 'DINE_IN'),

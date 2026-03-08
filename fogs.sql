@@ -280,6 +280,8 @@ CREATE TABLE `discount_categories` (
 ALTER TABLE `discounts` DROP COLUMN `target_categories`;
 ALTER TABLE users ADD COLUMN pin_length TINYINT(2) UNSIGNED NULL AFTER passcode;
 ALTER TABLE order_items ADD COLUMN item_notes VARCHAR(255) NULL AFTER discount_note;
+ALTER TABLE orders ADD COLUMN tip_amount DECIMAL(10,2) DEFAULT 0.00 AFTER grand_total;
+ALTER TABLE order_items MODIFY product_id INT(10) UNSIGNED NULL;
 
 -- 1. Turn on the background task runner
 SET GLOBAL event_scheduler = ON;

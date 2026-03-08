@@ -25,6 +25,64 @@ async function initPOS() {
     } catch (e) { console.error("POS Error:", e); }
 }
 
+window.addOpenItem = async function() {
+    if (state.mode === 'dine_in' && !state.activeTableId) return Swal.fire('Table Required', 'Select a table first', 'warning');
+    if (state.mode === 'takeout' && !state.activeOrderId && state.activeOrderId !== 'new') return Swal.fire('Takeout Required', 'Create a new takeout order first', 'warning');
+
+    const { value: formValues } = await Swal.fire({
+        title: '⭐ Custom Item',
+        html: `
+            <div style="background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee; margin-bottom:15px; text-align:left;">
+                <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Item Name</label>
+                <input type="text" id="oi-name" class="search-bar" placeholder="e.g. Special Pasta Tray" style="margin-bottom:15px; border:2px solid var(--brand); font-weight:bold;">
+                
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                    <div>
+                        <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Unit Price (₱)</label>
+                        <input type="number" id="oi-price" class="search-bar" placeholder="0.00" step="0.01" style="margin-bottom:0; font-weight:bold; color:var(--brand-dark); font-size:1.2rem;">
+                    </div>
+                    <div>
+                        <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Quantity</label>
+                        <input type="number" id="oi-qty" class="search-bar" value="1" min="1" style="margin-bottom:0; font-weight:bold; font-size:1.2rem; text-align:center;">
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align:left;">
+                <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Kitchen Notes (Optional)</label>
+                <textarea id="oi-note" placeholder="e.g. Allergy, extra spicy..." style="width:100%; box-sizing:border-box; margin-top:5px; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;"></textarea>
+            </div>
+        `,
+        focusConfirm: false, showCancelButton: true, confirmButtonText: '+ Add to Cart', confirmButtonColor: '#2e7d32', width: 500,
+        preConfirm: () => {
+            const name = document.getElementById('oi-name').value;
+            const price = parseFloat(document.getElementById('oi-price').value);
+            const qty = parseInt(document.getElementById('oi-qty').value);
+            const note = document.getElementById('oi-note').value;
+            
+            if (!name || isNaN(price) || isNaN(qty) || qty < 1) {
+                Swal.showValidationMessage('Please enter a valid name, price, and quantity.');
+                return false;
+            }
+            return { name, price, qty, note };
+        }
+    });
+
+    if (formValues) {
+        let item = {
+            id: 'custom_item', 
+            name: '⭐ ' + formValues.name, 
+            price: formValues.price,
+            qty: formValues.qty,
+            variation_id: null, variation_name: null, modifiers: [],
+            item_notes: formValues.note || null,
+            discount_amount: 0, discount_note: ''
+        };
+        state.cart.push(item);
+        renderCart();
+    }
+};
+
 function renderCategories() {
     const con = document.getElementById('catContainer');
     if (!con) return;
@@ -178,24 +236,46 @@ window.handleProductSelection = async function(p) {
     if (state.mode === 'dine_in' && !state.activeTableId) return Swal.fire('Table Required', 'Select a table first', 'warning');
     if (state.mode === 'takeout' && !state.activeOrderId && state.activeOrderId !== 'new') return Swal.fire('Takeout Required', 'Create a new takeout order first', 'warning');
 
-    let item = { id: p.id, name: p.name, price: parseFloat(p.price), qty: 1, variation_id: null, variation_name: null, modifiers: [], item_notes: null, discount_amount: 0, discount_note: '' };
-
-    // PASS 'false' to hide notes when first adding!
     const options = await window.selectProductOptions(p, null, [], '', false);
     if (options.canceled) return;
+
+    let item = { id: p.id, name: p.name, price: options.price, qty: 1, variation_id: null, variation_name: null, modifiers: [], item_notes: null, discount_amount: 0, discount_note: '' };
 
     if (options.variation_id) {
         item.variation_id = options.variation_id;
         item.variation_name = options.variation_name;
         item.name = `${p.name} (${options.variation_name})`;
-        item.price = options.price;
     }
     item.modifiers = options.modifiers;
-    item.item_notes = options.item_notes; // Will be empty
+    item.item_notes = options.item_notes;
+
+    // 🌟 THE "CORKAGE" (VARIABLE PRICE) INTERCEPTOR 🌟
+    // If the database price is exactly 0 and there are no sizes/add-ons...
+    if (parseFloat(p.price) === 0 && !item.variation_id && item.modifiers.length === 0) {
+        const { value: openPriceData } = await Swal.fire({
+            title: p.name,
+            html: `
+                <div style="font-size:0.9rem; color:gray; margin-bottom:10px;">Enter the amount for this variable item.</div>
+                <input type="number" id="op-price" class="search-bar" placeholder="Amount (₱)" step="0.01" style="font-size:1.5rem; text-align:center; font-weight:bold; color:var(--brand-dark);">
+                <input type="text" id="op-note" class="search-bar" placeholder="Details (e.g. Big Wine, Fish)" style="margin-bottom:0;">
+            `,
+            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Add to Cart', confirmButtonColor: '#6B4226',
+            preConfirm: () => {
+                const pr = parseFloat(document.getElementById('op-price').value);
+                if (isNaN(pr) || pr < 0) { Swal.showValidationMessage('Enter a valid amount'); return false; }
+                return { price: pr, note: document.getElementById('op-note').value };
+            }
+        });
+
+        if (!openPriceData) return; 
+        item.price = openPriceData.price;
+        item.item_notes = openPriceData.note ? openPriceData.note : 'Variable Amount';
+    }
 
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
-    const uniqueKey = `${item.id}-${item.variation_id}-${modKey}-${item.item_notes || ''}`;
-    const existingIndex = state.cart.findIndex(i => `${i.id}-${i.variation_id}-${i.modifiers.map(m => m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
+    // We add the price to the unique key so Corkage 100 and Corkage 150 don't merge together!
+    const uniqueKey = `${item.id}-${item.variation_id}-${item.price}-${modKey}-${item.item_notes || ''}`;
+    const existingIndex = state.cart.findIndex(i => `${i.id}-${i.variation_id}-${i.price}-${i.modifiers.map(m => m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
 
     if (existingIndex > -1) state.cart[existingIndex].qty += 1;
     else state.cart.push(item);
@@ -326,12 +406,49 @@ window.confirmRemoveItem = function(idx) {
 
 window.editCartItem = async function(idx) {
     const item = state.cart[idx];
+
+    // 🌟 BUG FIX: INTERCEPT CUSTOM ITEMS 🌟
+    if (item.id === 'custom_item') {
+        const cleanName = item.name.replace('⭐ ', ''); // Remove the star for editing
+        const { value: formValues } = await Swal.fire({
+            title: 'Edit Custom Item',
+            html: `
+                <div style="text-align:left;">
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Item Name</label>
+                    <input type="text" id="oi-edit-name" class="search-bar" value="${cleanName}" style="margin-bottom:10px; font-weight:bold;">
+                    
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Unit Price (₱)</label>
+                    <input type="number" id="oi-edit-price" class="search-bar" value="${item.price}" step="0.01" style="margin-bottom:10px; font-weight:bold;">
+                    
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Kitchen Notes</label>
+                    <textarea id="oi-edit-note" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;">${item.item_notes || ''}</textarea>
+                </div>
+            `,
+            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Update', confirmButtonColor: '#6B4226', width: 400,
+            preConfirm: () => {
+                const name = document.getElementById('oi-edit-name').value;
+                const price = parseFloat(document.getElementById('oi-edit-price').value);
+                const note = document.getElementById('oi-edit-note').value;
+                if (!name || isNaN(price)) { Swal.showValidationMessage('Valid name and price required'); return false; }
+                return { name, price, note };
+            }
+        });
+
+        if (formValues) {
+            item.name = '⭐ ' + formValues.name; // Put the star back!
+            item.price = formValues.price;
+            item.item_notes = formValues.note || null;
+            renderCart();
+        }
+        return; // Stop here so it doesn't run the normal code!
+    }
+
+    // --- STANDARD DATABASE ITEM LOGIC BELOW ---
     const p = state.products.find(x => x.id == item.id);
     if (!p) return;
     
     let selectedMods = item.modifiers ? item.modifiers.map(m => m.id) : [];
 
-    // PASS 'true' to show notes when editing in the cart!
     const options = await window.selectProductOptions(p, item.variation_id, selectedMods, item.item_notes, true);
     if (options.canceled) return; 
 
@@ -342,11 +459,11 @@ window.editCartItem = async function(idx) {
         item.price = options.price;
     }
     item.modifiers = options.modifiers;
-    item.item_notes = options.item_notes; // Updates the note
+    item.item_notes = options.item_notes;
 
     const modKey = item.modifiers.map(m => m.id).sort().join(',');
-    const uniqueKey = `${item.id}-${item.variation_id}-${modKey}-${item.item_notes || ''}`;
-    const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.modifiers.map(m=>m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
+    const uniqueKey = `${item.id}-${item.variation_id}-${item.price}-${modKey}-${item.item_notes || ''}`;
+    const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.price}-${i.modifiers.map(m=>m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
     
     if (dupIdx > -1) { 
         state.cart[dupIdx].qty += item.qty; 
@@ -431,19 +548,33 @@ window.clearCart = function() {
 
 window.applyDiscountPopup = async function() {
     if(state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
-    let html = '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">';
+    let html = '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:15px;">';
+    
     state.discounts.forEach(d => { 
-        // =================================================================
-        // FIX #4: SHOW PERCENTAGE/AMOUNT ON THE ACTUAL DISCOUNT BUTTON
-        // =================================================================
         let label = d.name;
         if (d.type === 'percent') label += ` (${parseFloat(d.value)}%)`;
         else label += ` (₱${parseFloat(d.value)})`;
-        html += `<button class="btn secondary" onclick="selectDiscount(${d.id})">${label}</button>`; 
+
+        // NEW: Translate the target type into a friendly subtitle
+        let targetText = '';
+        if (d.target_type === 'all') targetText = 'Whole Bill';
+        else if (d.target_type === 'highest') targetText = 'Highest Item (SC/PWD)';
+        else if (d.target_type === 'food') targetText = 'Food Only';
+        else if (d.target_type === 'drink') targetText = 'Drinks Only';
+        else targetText = 'Specific Categories';
+
+        html += `
+            <button class="btn secondary" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px; line-height:1.2;" onclick="selectDiscount(${d.id})">
+                <span style="font-weight:bold; font-size:1rem; color:var(--brand-dark);">${label}</span>
+                <span style="font-size:0.75rem; color:gray; margin-top:4px;">Applies to: ${targetText}</span>
+            </button>
+        `; 
     });
+    
     html += `</div>`;
     html += `<button class="btn" style="width:100%; background:var(--blue); margin-bottom:10px;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
     html += `<button class="btn danger" style="width:100%;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
+    
     Swal.fire({ title: 'Select Discount', html: html, showConfirmButton: false, showCancelButton: true });
 };
 
@@ -783,13 +914,30 @@ window.splitBillByItem = async function(balance) {
 
 window.setPayMethod = function(method) {
     document.getElementById('pay-method').value = method;
-    if(method === 'cash') {
-        document.getElementById('btn-cash').style = "flex:1; padding:15px; font-size:1.1rem; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;";
-        document.getElementById('btn-gcash').style = "flex:1; padding:15px; font-size:1.1rem; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;";
+    const isCash = method === 'cash';
+    
+    // Toggle Button Styles
+    const btnCash = document.getElementById('btn-cash');
+    const btnGcash = document.getElementById('btn-gcash');
+    
+    if (isCash) {
+        btnCash.style.background = 'var(--brand)'; btnCash.style.color = 'white'; btnCash.style.borderColor = 'var(--brand)';
+        btnGcash.style.background = 'white'; btnGcash.style.color = 'gray'; btnGcash.style.borderColor = '#ccc';
     } else {
-        document.getElementById('btn-gcash').style = "flex:1; padding:15px; font-size:1.1rem; border-radius:8px; border:2px solid #005ce6; background:#005ce6; color:white; font-weight:bold; cursor:pointer;";
-        document.getElementById('btn-cash').style = "flex:1; padding:15px; font-size:1.1rem; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;";
+        btnGcash.style.background = '#005ce6'; btnGcash.style.color = 'white'; btnGcash.style.borderColor = '#005ce6';
+        btnCash.style.background = 'white'; btnCash.style.color = 'gray'; btnCash.style.borderColor = '#ccc';
+        
+        // Auto-fill exact balance for GCash
+        const balance = parseFloat(document.getElementById('co-balance-raw').value) || 0;
+        document.getElementById('pay-amount').value = balance.toFixed(2);
     }
+
+    // Hide/Show Cash Pad and Change display
+    document.getElementById('cash-pad').style.display = isCash ? 'grid' : 'none';
+    document.getElementById('change-row').style.visibility = isCash ? 'visible' : 'hidden';
+    
+    // Trigger input event to update display
+    document.getElementById('pay-amount').dispatchEvent(new Event('input'));
 };
 
 window.addTendered = function(amount) {
@@ -808,71 +956,114 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
     
     if (balance <= 0) {
         Swal.fire('Paid', 'This order is already fully paid.', 'info');
-        state.cart = []; state.discount_id = null; state.discount_amount = 0; state.discount_note = ''; state.senior_details = []; state.amount_paid = 0; state.customer_name = null;
-        state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
-        document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+        state.cart = []; state.discount_id = null; state.discount_amount = 0; state.activeTableId = null; state.activeOrderId = null;
         renderCart(); return;
     }
 
     const denominations = [20, 50, 100, 200, 500, 1000];
     const initialInput = prefillAmount ? prefillAmount.toFixed(2) : '';
-    
-    let splitDetailsHtml = '';
-    if (selectedItems && selectedItems.length > 0) {
-        splitDetailsHtml = `<div style="font-size:0.85rem; color:var(--brand-dark); background:#fff3e0; padding:10px; border-radius:6px; margin-bottom:10px; border:1px solid #ffcc80; text-align:left;"><b>Paying specifically for:</b><br>${selectedItems.join(', ')}</div>`;
-    }
 
     const { value: formValues } = await Swal.fire({
-        title: 'Checkout',
+        title: 'Finalize Payment',
+        width: '800px', 
         html: `
-            <div class="checkout-summary" style="background:#f9fafb; padding:15px; border-radius:10px; margin-bottom:15px; border:1px solid #eee; text-align:left;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>Bill Total:</span> <span>₱${state.grand_total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:10px; color:var(--text-muted);"><span>Already Paid:</span> <span>₱${state.amount_paid.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>
-                <hr style="border:0; border-top:1px dashed #ccc; margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between;"><span>Balance Due:</span> <span style="font-weight:bold; color:var(--danger); font-size:1.5rem;">₱${balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>
-                <div style="display:flex; justify-content:space-between; color:var(--success); margin-top:5px;"><span>Change:</span> <span id="co-change" style="font-weight:bold; font-size:1.2rem;">₱0.00</span></div>
-            </div>
-            ${splitDetailsHtml}
-            <button class="btn" style="width:100%; margin-bottom:15px; background:var(--tan);" onclick="splitBillByItem(${balance})">✂️ Split by Specific Items</button>
-            <div style="display:flex; gap:10px; margin-bottom:15px;">
-                <button type="button" id="btn-cash" style="flex:1; padding:15px; font-size:1.1rem; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;" onclick="setPayMethod('cash')">💵 CASH</button>
-                <button type="button" id="btn-gcash" style="flex:1; padding:15px; font-size:1.1rem; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;" onclick="setPayMethod('gcash')">📱 GCASH</button>
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; text-align: left;">
+                
+                <div style="border-right: 1px solid #eee; padding-right: 20px;">
+                    <div style="background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee; margin-bottom:15px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>Total Bill:</span> <span>₱${state.grand_total.toFixed(2)}</span></div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px; color:var(--text-muted); font-size:0.9rem;"><span>Already Paid:</span> <span>₱${state.amount_paid.toFixed(2)}</span></div>
+                        <hr style="border:0; border-top:1px dashed #ccc; margin:10px 0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:bold;">Balance Due:</span> 
+                            <span style="font-weight:900; color:var(--danger); font-size:1.8rem;">₱${balance.toFixed(2)}</span>
+                        </div>
+                        <input type="hidden" id="co-balance-raw" value="${balance}">
+                        <div id="change-row" style="display:flex; justify-content:space-between; color:var(--success); margin-top:10px; font-weight:bold;">
+                            <span>Change:</span> <span id="co-change" style="font-size:1.2rem;">₱0.00</span>
+                        </div>
+                    </div>
+
+                    ${selectedItems ? `<div style="font-size:0.8rem; background:#fff3e0; padding:8px; border-radius:6px; margin-bottom:15px; border:1px solid #ffcc80;"><b>Splitting:</b> ${selectedItems.join(', ')}</div>` : ''}
+
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Payment Method</label>
+                    <div style="display:flex; gap:10px; margin-top:8px; margin-bottom:20px;">
+                        <button type="button" id="btn-cash" style="flex:1; padding:15px; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;" onclick="setPayMethod('cash')">💵 CASH</button>
+                        <button type="button" id="btn-gcash" style="flex:1; padding:15px; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;" onclick="setPayMethod('gcash')">📱 GCASH</button>
+                    </div>
+                    
+                    <button class="btn secondary" style="width:100%; border-style:dashed;" onclick="splitBillByItem(${balance})">✂️ Split by Specific Items</button>
+                </div>
+
+                <div>
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--brand); text-transform:uppercase;">Staff Tip (Optional)</label>
+                    <input type="number" id="pay-tip" class="search-bar" placeholder="0.00" step="0.01" 
+                           style="font-size:1.5rem; text-align:center; height:50px; width:100%; margin:5px 0 15px 0; border:1px solid var(--border); color:var(--brand-dark);">
+
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Amount Tendered</label>
+                    <input type="number" id="pay-amount" class="search-bar" value="${initialInput}" placeholder="0.00" step="0.01" 
+                           style="font-size:2.5rem; text-align:center; height:80px; width:100%; margin:5px 0 10px 0; border:2px solid var(--brand); font-weight:900; color:var(--brand-dark);">
+                    
+                    <div id="cash-pad" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
+                        <button class="btn secondary" style="height:55px; font-weight:900;" onclick="addTendered(${prefillAmount || balance})">EXACT</button>
+                        ${denominations.map(amt => `<button class="btn secondary" style="height:55px; font-weight:bold;" onclick="addTendered(${amt})">₱${amt}</button>`).join('')}
+                        <button class="btn danger" style="height:55px; font-weight:bold;" onclick="document.getElementById('pay-amount').value=''; document.getElementById('pay-amount').dispatchEvent(new Event('input'));">CLEAR</button>
+                    </div>
+                </div>
             </div>
             <input type="hidden" id="pay-method" value="cash">
-            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:15px;">
-                <button class="btn secondary" onclick="addTendered(${prefillAmount || balance})">Exact</button>
-                ${denominations.map(amt => `<button class="btn secondary" onclick="addTendered(${amt})">+₱${amt}</button>`).join('')}
-                <button class="btn danger" onclick="document.getElementById('pay-amount').value=''; document.getElementById('pay-amount').dispatchEvent(new Event('input', {bubbles:true}));">Clear</button>
-            </div>
-            <input type="number" id="pay-amount" class="search-bar" value="${initialInput}" placeholder="Amount Tendered" step="0.01" style="font-size:2rem; text-align:center; height:70px; margin-bottom:10px;">
         `,
         showCancelButton: true, confirmButtonText: 'PROCESS PAYMENT', confirmButtonColor: '#2e7d32',
         didOpen: () => {
-            const amtInput = document.getElementById('pay-amount'); amtInput.focus();
+            const amtInput = document.getElementById('pay-amount');
+            const tipInput = document.getElementById('pay-tip'); // Grab the tip input
+            
             const updateChange = () => {
-                const targetDue = prefillAmount || balance; const tendered = parseFloat(amtInput.value) || 0;
-                const change = Math.round((tendered - targetDue) * 100) / 100;
-                if (change >= 0) { document.getElementById('co-change').innerText = '₱' + change.toFixed(2); document.getElementById('co-change').style.color = 'var(--success)'; } 
-                else { document.getElementById('co-change').innerText = 'Partial (Rem: ₱' + Math.abs(change).toFixed(2) + ')'; document.getElementById('co-change').style.color = 'var(--brand-light)'; }
+                const targetDue = prefillAmount || balance;
+                const tendered = parseFloat(amtInput.value) || 0;
+                const tip = parseFloat(tipInput.value) || 0; // Include tip in math
+                
+                // MATH: Change = Tendered - Bill - Tip
+                const change = Math.round((tendered - targetDue - tip) * 100) / 100;
+                
+                const changeEl = document.getElementById('co-change');
+                if (change >= 0) { 
+                    changeEl.innerText = '₱' + change.toFixed(2); 
+                    changeEl.style.color = 'var(--success)';
+                } else { 
+                    changeEl.innerText = 'Partial (Rem: ₱' + Math.abs(change).toFixed(2) + ')'; 
+                    changeEl.style.color = '#e65100'; 
+                }
             };
-            amtInput.addEventListener('input', updateChange); if (prefillAmount) updateChange();
+            
+            // Listen to BOTH inputs so change calculates dynamically!
+            amtInput.addEventListener('input', updateChange);
+            tipInput.addEventListener('input', updateChange);
+            if (prefillAmount) updateChange();
         },
         preConfirm: () => {
             const method = document.getElementById('pay-method').value;
             const amount = parseFloat(document.getElementById('pay-amount').value);
-            if(isNaN(amount) || amount <= 0) { Swal.showValidationMessage('Enter a valid amount'); return false; }
-            return { method, amount };
+            const tip = parseFloat(document.getElementById('pay-tip').value) || 0; // Get Tip
+            
+            if(isNaN(amount) || amount <= 0) { Swal.showValidationMessage('Enter a valid tendered amount'); return false; }
+            if (amount < (balance + tip)) { Swal.showValidationMessage('Tendered amount is too low to cover bill + tip!'); return false; }
+            
+            return { method, amount, tip }; // Pass tip to payload
         }
     });
 
     if(formValues) {
         const res = await fetch('../api/checkout.php', {
             method: 'POST', 
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCsrfToken() // CSRF APPLIED
-            },
-            body: JSON.stringify({ order_id: state.activeOrderId, method: formValues.method, amount: formValues.amount, customer_name: state.customer_name })
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({ 
+                order_id: state.activeOrderId, 
+                method: formValues.method, 
+                amount: formValues.amount, 
+                tip: formValues.tip, // SEND TIP TO SERVER
+                customer_name: state.customer_name 
+            })
         });
         const data = await res.json();
         if(data.success) {
@@ -883,14 +1074,13 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
                     showCancelButton: true, confirmButtonText: '🖨️ Print Receipt', cancelButtonText: 'Done', confirmButtonColor: '#2e7d32'
                 }).then((res) => { if (res.isConfirmed) fetch(`../api/print_order.php?order_id=${paidOrderId}&type=receipt`); });
 
-                state.cart = []; state.discount_id = null; state.discount_amount = 0; state.discount_note = ''; state.senior_details = []; state.amount_paid = 0; state.customer_name = null;
-                state.custom_discount = { is_active: false, type: 'percent', val: 0, target: 'all', note: '' };
-                state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+                state.cart = []; state.discount_id = null; state.discount_amount = 0; state.activeTableId = null; state.activeOrderId = null;
                 document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
                 renderCart();
             } else {
-                Swal.fire({title: 'Partial Payment Saved', text: 'Remaining Balance: ₱' + Math.abs(formValues.amount - balance).toFixed(2), icon: 'info', confirmButtonColor: '#6B4226'});
+                Swal.fire({title: 'Partial Payment Saved', icon: 'info', confirmButtonColor: '#6B4226'});
                 state.amount_paid += formValues.amount; 
+                renderCart();
             }
         } else { Swal.fire('Error', data.error, 'error'); }
     }
