@@ -66,7 +66,8 @@ try {
     }
 
     $existing_map = [];
-    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity FROM order_items WHERE order_id = ?");
+    // We added product_name, base_price, and item_notes to the SELECT query!
+    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, item_notes FROM order_items WHERE order_id = ?");
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
     $e_res = $e_stmt->get_result();
@@ -80,8 +81,12 @@ try {
         $m_res = $m_stmt->get_result();
         $m_ids = []; while($m = $m_res->fetch_assoc()) $m_ids[] = $m['modifier_id'];
         
-        // Include product_id in key. If it's a custom item, product_id is null.
-        $key = ($row['product_id'] ?? 'custom') . '_' . ($row['variation_id'] ?? '0') . '_' . implode(',', $m_ids);
+        // BULLETPROOF KEY: Includes Name (for custom items), Price, and Notes!
+        $pid_part = is_null($row['product_id']) ? 'custom_' . md5($row['product_name']) : $row['product_id'];
+        $price_part = number_format((float)$row['base_price'], 2, '.', '');
+        $note_part = md5($row['item_notes'] ?? '');
+        
+        $key = $pid_part . '_' . ($row['variation_id'] ?? '0') . '_' . implode(',', $m_ids) . '_' . $price_part . '_' . $note_part;
         $existing_map[$key] = $row;
     }
     $e_stmt->close();
@@ -112,25 +117,18 @@ try {
         $item_note = !empty($item['item_notes']) ? $item['item_notes'] : null;
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
-        
-        // Use a safe key for custom items so they don't merge together by accident
-        $key = ($is_custom ? 'custom_' . md5($item['name']) : $p_id) . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids);
 
+        // Figure out the price and name FIRST
         $base_p = 0; $p_name = ''; $v_name = null;
         
         if ($is_custom) {
-            // Off-Menu Item
             $base_p = (float)$item['price'];
             $p_name = $item['name'];
         } else {
-            // Standard Database Item
             $get_prod->bind_param('i', $p_id); $get_prod->execute();
             if ($p_data = $get_prod->get_result()->fetch_assoc()) { 
                 $base_p = (float)$p_data['price']; 
                 $p_name = $p_data['name']; 
-                
-                // 🌟 THE VARIABLE ITEM RULE: 
-                // If the owner set the DB price to 0, trust the tablet's custom price!
                 if ($base_p == 0) {
                     $base_p = (float)$item['price']; 
                 }
@@ -141,6 +139,12 @@ try {
             $get_var->bind_param('i', $v_id); $get_var->execute();
             if ($v_data = $get_var->get_result()->fetch_assoc()) { $base_p = (float)$v_data['price']; $v_name = $v_data['name']; }
         }
+
+        // NOW GENERATE THE BULLETPROOF KEY:
+        $pid_part = $is_custom ? 'custom_' . md5($p_name) : $p_id;
+        $price_part = number_format($base_p, 2, '.', '');
+        $note_part = md5($item_note ?? '');
+        $key = $pid_part . '_' . ($v_id ?? '0') . '_' . implode(',', $mod_ids) . '_' . $price_part . '_' . $note_part;
 
         $mod_total = 0; $resolved_mods = [];
         foreach (($item['modifiers'] ?? []) as $m) {
