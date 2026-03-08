@@ -3,17 +3,17 @@
 session_start();
 
 // --- NEW: LOG THE LOGOUT TO AUDIT LOG BEFORE DESTROYING SESSION ---
-if (!empty($_SESSION['user_id'])) {
-    require_once '../db.php';
-    try {
-        $mysqli = get_db_conn();
-        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
-        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, ip_address, created_at) VALUES (?, 'logout', ?, NOW())");
-        $log_stmt->bind_param('is', $_SESSION['user_id'], $ip);
-        $log_stmt->execute();
-        $log_stmt->close();
-    } catch (Exception $e) { /* Ignore DB errors on logout */ }
-}
+//if (!empty($_SESSION['user_id'])) {
+//   require_once '../db.php';
+//    try {
+//        $mysqli = get_db_conn();
+//        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+//        $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, ip_address, created_at) VALUES (?, 'logout', ?, NOW())");
+//        $log_stmt->bind_param('is', $_SESSION['user_id'], $ip);
+//        $log_stmt->execute();
+//        $log_stmt->close();
+//    } catch (Exception $e) { /* Ignore DB errors on logout */ }
+//}
 // ------------------------------------------------------------------
 
 // 1. Unset all session variables
