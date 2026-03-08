@@ -77,7 +77,7 @@ try {
 
         $display_name = $row['variation_name'] ? $row['product_name'] . ' (' . $row['variation_name'] . ')' : $row['product_name'];
         $cart[] = [
-            'id' => (int)$row['product_id'], 'variation_id' => $row['variation_id'] ? (int)$row['variation_id'] : null,
+           'id' => is_null($row['product_id']) ? 'custom_item' : (int)$row['product_id'], 'variation_id' => $row['variation_id'] ? (int)$row['variation_id'] : null,
             'name' => $display_name, 'price' => (float)$row['base_price'], 'qty' => (int)$row['quantity'],
             'discount_amount' => (float)$row['discount_amount'], 'discount_note' => $row['discount_note'], 
             'item_notes' => $row['item_notes'] ?? null,

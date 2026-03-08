@@ -27,15 +27,17 @@ try {
     $printer_errors = [];
 
     // --- FETCH MAIN ITEMS ---
+    // FIX: Use LEFT JOINs so custom items (NULL product_id) are not skipped!
+    // FIX: Use COALESCE to force custom items to be 'food' so they route to the kitchen printer
     $sql = "
         SELECT 
             oi.id as order_item_id, oi.quantity, oi.kitchen_printed,
-            p.name as product_name, pv.name as variation_name, p.category_id,
-            c.cat_type, oi.base_price, oi.modifier_total, oi.discount_amount, oi.discount_note, oi.item_notes
+            oi.product_name, oi.variation_name, p.category_id,
+            COALESCE(c.cat_type, 'food') as cat_type, 
+            oi.base_price, oi.modifier_total, oi.discount_amount, oi.discount_note, oi.item_notes
         FROM order_items oi
-        JOIN products p ON oi.product_id = p.id
-        JOIN categories c ON p.category_id = c.id
-        LEFT JOIN product_variations pv ON oi.variation_id = pv.id
+        LEFT JOIN products p ON oi.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
         WHERE oi.order_id = ?
     ";
     $stmt = $mysqli->prepare($sql);

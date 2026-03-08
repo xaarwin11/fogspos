@@ -555,7 +555,6 @@ window.applyDiscountPopup = async function() {
         if (d.type === 'percent') label += ` (${parseFloat(d.value)}%)`;
         else label += ` (₱${parseFloat(d.value)})`;
 
-        // NEW: Translate the target type into a friendly subtitle
         let targetText = '';
         if (d.target_type === 'all') targetText = 'Whole Bill';
         else if (d.target_type === 'highest') targetText = 'Highest Item (SC/PWD)';
@@ -570,12 +569,62 @@ window.applyDiscountPopup = async function() {
             </button>
         `; 
     });
-    
     html += `</div>`;
+
+    // 🌟 NEW: THE ROUNDING / EXACT TOTAL BUTTON 🌟
+    html += `<button class="btn" style="width:100%; background:#f59e0b; color:white; border:none; margin-bottom:10px;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Down)</button>`;
+    
     html += `<button class="btn" style="width:100%; background:var(--blue); margin-bottom:10px;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
     html += `<button class="btn danger" style="width:100%;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
     
     Swal.fire({ title: 'Select Discount', html: html, showConfirmButton: false, showCancelButton: true });
+};
+
+window.exactTotalDiscountPopup = async function() {
+    Swal.close();
+    
+    // 🌟 THE FIX: Use the Grand Total, which ALREADY includes the Senior Discount!
+    const currentTotal = state.grand_total;
+
+    if (currentTotal <= 0) return Swal.fire('Error', 'Bill is already zero.', 'error');
+
+    const { value: targetTotal } = await Swal.fire({
+        title: '🎯 Round Down Bill',
+        html: `
+            <div style="font-size:0.9rem; color:gray; margin-bottom:15px;">The current total (after all discounts) is <b>₱${currentTotal.toFixed(2)}</b>. What exact amount do you want to charge?</div>
+            <input type="number" id="et-val" class="search-bar" placeholder="e.g. 1500" step="0.01" style="font-size:2rem; text-align:center; height:70px; font-weight:bold; color:var(--brand-dark);">
+        `,
+        focusConfirm: false, showCancelButton: true, confirmButtonText: 'Apply Adjustment', confirmButtonColor: '#6B4226',
+        preConfirm: () => {
+            const val = parseFloat(document.getElementById('et-val').value);
+            if (isNaN(val) || val < 0) {
+                Swal.showValidationMessage('Please enter a valid amount.');
+                return false;
+            }
+            if (val >= currentTotal) {
+                Swal.showValidationMessage('Amount must be lower than the current total (₱' + currentTotal.toFixed(2) + ')');
+                return false;
+            }
+            return val;
+        }
+    });
+
+    if (targetTotal !== undefined) {
+        const discountToApply = currentTotal - targetTotal;
+        
+        // WE DO NOT NULLIFY state.discount_id ANYMORE! Let it stack!
+        state.custom_discount = { 
+            is_active: true, 
+            type: 'amount', 
+            val: discountToApply, 
+            target: 'all', 
+            note: 'Round Off' 
+        };
+        
+        Swal.fire({title:'Adjusting...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+        await saveOrder(true);
+        Swal.fire({title:'Applied', text: 'Bill rounded down to ₱' + targetTotal.toFixed(2), icon:'success', timer: 1000, showConfirmButton: false});
+    }
 };
 
 window.customOrderDiscount = async function() {
@@ -730,12 +779,21 @@ function syncOrderState(d) {
     
     state.discount_amount = globalDisc;
     
-    if (d.order_info.discount_note && d.order_info.discount_note.startsWith('Custom:')) {
-        if (!state.custom_discount || !state.custom_discount.val) {
-            state.custom_discount = { is_active: true, type: 'amount', val: globalDisc, target: 'all', note: d.order_info.discount_note.replace('Custom: ', '') };
+    const dbNote = d.order_info.discount_note || '';
+    if (dbNote.includes('Custom:')) {
+        // If the tablet doesn't currently remember the custom discount, try to reconstruct it from the DB
+        if (!state.custom_discount || !state.custom_discount.is_active) {
+            let extractedNote = dbNote;
+            if (dbNote.includes(' + Custom: ')) {
+                extractedNote = dbNote.split(' + Custom: ')[1];
+            } else {
+                extractedNote = dbNote.replace('Custom: ', '');
+            }
+            state.custom_discount = { is_active: true, type: 'amount', val: globalDisc, target: 'all', note: extractedNote };
         }
+        // If the tablet ALREADY knows about it, do nothing. Let it keep its memory!
     } else {
-        state.custom_discount = { is_active: false };
+        state.custom_discount = { is_active: false, type: 'percent', val: 0, target: 'all', note: '' };
     }
     
     state.discount_note = d.order_info.discount_note || '';

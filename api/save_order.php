@@ -252,7 +252,10 @@ try {
                 $discount_note = null; 
             }
         }
-    } else if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
+    } // <-- Notice we closed the main discount if-statement here!
+
+    // NEW: Use a standard 'if' instead of 'else if' so they can stack!
+    if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
         
         $c_type = $custom_discount['type'] ?? 'amount';
         $c_val = (float)($custom_discount['val'] ?? 0);
@@ -276,12 +279,24 @@ try {
             }
         }
 
+        $custom_amt = 0;
         if ($c_type === 'percent') {
-            $global_discount_amount = $target_subtotal * ($c_val / 100);
+            $custom_amt = $target_subtotal * ($c_val / 100);
         } else {
-            $global_discount_amount = min($c_val, $target_subtotal);
+            $custom_amt = min($c_val, $target_subtotal);
         }
-        $discount_note = "Custom: $c_note";
+
+        // STACK THE MATH: Add the rounding to whatever SC/PWD discount is already there!
+        $global_discount_amount += $custom_amt;
+        
+        // Append the note so the receipt shows both!
+        // Ensure "Custom:" is present so the JS can detect it on reload
+        $c_label = (strpos($c_note, 'Custom:') === false) ? "Custom: " . $c_note : $c_note;
+        if ($discount_note) {
+            $discount_note .= " + " . $c_label; 
+        } else {
+            $discount_note = $c_label;
+        }
     }
     
     $sum_stmt = $mysqli->prepare("SELECT COALESCE(SUM((base_price + modifier_total) * quantity), 0) as raw_sub, COALESCE(SUM(line_total), 0) as discounted_sub FROM order_items WHERE order_id = ?");
