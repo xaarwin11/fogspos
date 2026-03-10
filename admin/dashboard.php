@@ -24,10 +24,18 @@ $sales = ['total_orders' => 0, 'total_sales' => 0];
 $payments = [];
 $shifts = [];
 $orders = [];
-
+$top_items = [];
+    
 try {
-    // FIX: Sales math is now calculated based strictly on the PAID_AT date!
-    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {
+    if ($stmt_top = $mysqli->prepare("SELECT product_name, SUM(quantity) as qty_sold, SUM(line_total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE DATE(o.paid_at) = ? AND o.status = 'paid' GROUP BY product_name ORDER BY qty_sold DESC LIMIT 5")) {
+        $stmt_top->bind_param('s', $date);
+        $stmt_top->execute();
+        $top_items = $stmt_top->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_top->close();
+    }
+    
+    // Sales math is now calculated based strictly on the PAID_AT date
+    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales, COALESCE(SUM(discount_total), 0) as total_discounts FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {
         $stmt1->bind_param('s', $date);
         $stmt1->execute();
         $sales = $stmt1->get_result()->fetch_assoc();
@@ -48,7 +56,7 @@ try {
         $stmt_shift->close();
     }
 
-    // FIX: Show orders that were EITHER created today, or paid today.
+    // Show orders that were EITHER created today, or paid today.
     if ($stmt3 = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE DATE(COALESCE(o.paid_at, o.created_at)) = ? ORDER BY COALESCE(o.paid_at, o.created_at) DESC")) {
         $stmt3->bind_param('s', $date);
         $stmt3->execute();
@@ -71,7 +79,7 @@ try {
     <script src="../assets/js/sweetalert2.js"></script>
     <style>
         .dashboard-layout { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
-        .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 30px; }
         .stat-card { background: white; padding: 25px; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
         .stat-card h3 { margin: 0 0 10px 0; color: var(--text-muted); font-size: 1rem; text-transform: uppercase; letter-spacing: 1px; }
@@ -100,6 +108,7 @@ try {
             .date-display { flex: 1; justify-content: center; }
             .stat-card { padding: 15px; }
             .stat-card .value { font-size: 2.2rem; }
+            .search-bar-container { width: 100%; justify-content: space-between; }
         }
     </style>
 </head>
@@ -108,7 +117,12 @@ try {
 
     <div class="dashboard-layout">
         <div class="dashboard-header">
-            <h1 style="color:var(--brand-dark); margin:0;">Sales Dashboard</h1>
+            <div>
+                <h1 style="color:var(--brand-dark); margin:0; margin-bottom:5px;">Sales Dashboard</h1>
+                <label style="display:flex; align-items:center; gap:8px; font-weight:bold; color:var(--brand); cursor:pointer; font-size:0.9rem;">
+                    <input type="checkbox" id="autoRefreshToggle" onchange="toggleAutoRefresh()"> Live Auto-Refresh
+                </label>
+            </div>
             <div class="date-navigator">
                 <a href="?date=<?= $prev_date ?>" class="date-nav-btn" style="border-right:1px solid var(--border);">❮</a>
                 <form method="GET" style="margin:0; height:100%; flex: 1;">
@@ -127,6 +141,11 @@ try {
                     <h3>Gross Sales</h3>
                     <div class="value">₱<?= number_format((float)($sales['total_sales'] ?? 0), 2) ?></div>
                     <div style="font-size:0.9rem; color:gray; margin-top:5px;">For <?= date('F d, Y', strtotime($date)) ?></div>
+                </div>
+                <div class="stat-card">
+                    <h3>Discounts Given</h3>
+                    <div class="value" style="color:var(--danger);">₱<?= number_format((float)($sales['total_discounts'] ?? 0), 2) ?></div>
+                    <div style="font-size:0.9rem; color:gray; margin-top:5px;">SC, PWD, and Custom</div>
                 </div>
             <?php else: ?>
                 <div class="stat-card">
@@ -161,7 +180,33 @@ try {
         </div>
 
         <?php if (in_array($role, ['admin', 'manager'])): ?>
-            <h2 style="color:var(--brand-dark); margin-bottom:15px;">💰 Cash Drawer Shifts</h2>
+            
+            <div style="margin-bottom: 30px;">
+                <h2 style="color:var(--brand-dark); margin-bottom:15px;">🔥 Top 5 Best Sellers</h2>
+                <div class="table-responsive">
+                    <table class="orders-table" style="margin-bottom:0;">
+                        <thead><tr><th>Item Name</th><th>Quantity Sold</th><th>Total Revenue</th></tr></thead>
+                        <tbody>
+                            <?php foreach($top_items as $ti): ?>
+                            <tr>
+                                <td style="font-weight:bold;"><?= htmlspecialchars($ti['product_name']) ?></td>
+                                <td><?= $ti['qty_sold'] ?>x</td>
+                                <td style="color:var(--brand); font-weight:bold;">₱<?= number_format($ti['total_revenue'], 2) ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <?php if(empty($top_items)) echo "<tr><td colspan='3' style='text-align:center; color:gray;'>No items sold yet.</td></tr>"; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h2 style="color:var(--brand-dark); margin:0;">💰 Cash Drawer Shifts</h2>
+                <div>
+                    <button class="btn" style="background:var(--brand); color:white;" onclick="openRegisterPopup()">+ Open Register</button>
+                    <button class="btn" style="background:#c62828; color:white;" onclick="closeRegisterPopup()">🔒 Close Register</button>
+                </div>
+            </div>
             <div class="table-responsive">
                 <table class="orders-table">
                     <thead>
@@ -213,9 +258,16 @@ try {
             </div>
         <?php endif; ?>
         
-        <h2 style="color:var(--brand-dark); margin-bottom:15px;">Order History</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+            <h2 style="color:var(--brand-dark); margin:0;">Order History</h2>
+            <div class="search-bar-container" style="display:flex; gap:10px; align-items:center;">
+                <input type="text" id="orderSearch" onkeyup="filterOrders()" placeholder="🔍 Search Order #, Table, or Status..." class="search-bar" style="width:280px; margin-bottom:0; padding:10px;">
+                <button onclick="exportTableToCSV('fogs_sales_<?= $date ?>.csv')" class="btn secondary" style="background:#10b981; color:white; border:none; padding:10px 15px; white-space:nowrap;">📥 Export CSV</button>
+            </div>
+        </div>
+
         <div class="table-responsive">
-            <table class="orders-table">
+            <table class="orders-table" id="orderHistoryTable">
                 <thead>
                     <tr>
                         <th>Order #</th>
@@ -228,11 +280,17 @@ try {
                 </thead>
                 <tbody>
                     <?php foreach($orders as $o): ?>
+                    <?php 
+                        // Color-coded waiting warning logic
+                        $minutes_open = round((time() - strtotime($o['created_at'])) / 60);
+                        $warning_color = ($o['status'] === 'open' && $minutes_open > 45) ? 'color:#c62828; font-weight:900;' : 'font-weight:500;';
+                    ?>
                     <tr>
                         <td><strong>#<?= $o['id'] ?></strong></td>
                         <td><?= date('h:i A', strtotime($o['created_at'])) ?></td>
-                        <td style="text-transform:capitalize; font-weight:500;">
+                        <td style="text-transform:capitalize; <?= $warning_color ?>">
                             <?= $o['order_type'] === 'takeout' ? '🥡 Takeout' : '🍽️ Table ' . htmlspecialchars($o['table_number'] ?? 'N/A') ?>
+                            <?php if($o['status'] === 'open' && $minutes_open > 45) echo "<br><small style='color:#c62828;'>Waiting {$minutes_open}m!</small>"; ?>
                         </td>
                         <td><span class="status-badge status-<?= htmlspecialchars($o['status'] ?? 'open') ?>"><?= htmlspecialchars($o['status'] ?? 'OPEN') ?></span></td>
                         <td style="font-weight:bold; color:var(--brand); font-size:1.1rem;">₱<?= number_format((float)$o['grand_total'], 2) ?></td>
@@ -244,7 +302,10 @@ try {
                                 
                                 <?php if(isset($o['status']) && $o['status'] === 'paid'): ?>
                                     <button onclick="refundOrder(<?= $o['id'] ?>, <?= $o['grand_total'] ?>)" style="background:#c62828; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold;">Refund</button>
+                                <?php elseif(isset($o['status']) && $o['status'] === 'open'): ?>
+                                    <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#f59e0b; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold;">Void</button>
                                 <?php endif; ?>
+
                             </div>
                         </td>
                     </tr>
@@ -258,6 +319,59 @@ try {
     </div>
 
     <script>
+        // --- AUTO REFRESH LOGIC ---
+        let refreshTimer;
+        function toggleAutoRefresh() {
+            if (document.getElementById('autoRefreshToggle').checked) {
+                sessionStorage.setItem('liveMode', 'true');
+                refreshTimer = setTimeout(() => window.location.reload(), 60000); // Reload every 60s
+            } else {
+                sessionStorage.setItem('liveMode', 'false');
+                clearTimeout(refreshTimer);
+            }
+        }
+        if (sessionStorage.getItem('liveMode') === 'true') {
+            document.getElementById('autoRefreshToggle').checked = true;
+            toggleAutoRefresh();
+        }
+
+        // --- LIVE SEARCH LOGIC ---
+        function filterOrders() {
+            let input = document.getElementById("orderSearch").value.toLowerCase();
+            let rows = document.querySelectorAll("#orderHistoryTable tbody tr");
+            
+            rows.forEach(row => {
+                if (row.cells.length < 2) return; // Skip the empty state message row
+                let text = row.innerText.toLowerCase();
+                row.style.display = text.includes(input) ? "" : "none";
+            });
+        }
+
+        // --- EXPORT TO CSV LOGIC ---
+        function exportTableToCSV(filename) {
+            let csv = [];
+            let rows = document.querySelectorAll("#orderHistoryTable tr");
+            
+            for (let i = 0; i < rows.length; i++) {
+                let row = [], cols = rows[i].querySelectorAll("td, th");
+                // Skip the "Actions" column (index 5)
+                for (let j = 0; j < cols.length - 1; j++) {
+                    let data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, " ").replace(/"/g, '""');
+                    row.push('"' + data + '"');
+                }
+                csv.push(row.join(","));
+            }
+            
+            let csvFile = new Blob([csv.join("\n")], {type: "text/csv"});
+            let downloadLink = document.createElement("a");
+            downloadLink.download = filename;
+            downloadLink.href = window.URL.createObjectURL(csvFile);
+            downloadLink.style.display = "none";
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+        }
+
+        // --- EXISTING FUNCTIONS ---
         async function reprintOrder(orderId) {
             Swal.fire({title: 'Printing...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
             try {
@@ -308,6 +422,32 @@ try {
                 } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
             }
         }
+
+        async function voidOpenOrder(orderId) {
+            Swal.fire({
+                title: `Void Order #${orderId}?`,
+                text: "This order is open and unpaid. Are you sure you want to delete it permanently?",
+                icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, Void It', confirmButtonColor: '#f59e0b'
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                    try {
+                        const res = await fetch('../api/clear_order.php', { // Assuming clear_order is used for this
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+                            body: JSON.stringify({ order_id: orderId })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            Swal.fire({icon: 'success', title: 'Order Voided', timer: 1000, showConfirmButton: false})
+                            .then(() => window.location.reload());
+                        } else {
+                            Swal.fire('Error', data.error || 'Could not void order.', 'error');
+                        }
+                    } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
+                }
+            });
+        }
         
         async function viewOrderDetails(orderId) {
             try {
@@ -323,7 +463,6 @@ try {
                 const o = data.order;
                 let html = `<div style="text-align:left; font-family:monospace; background:#f9fafb; padding:15px; border:1px solid #ddd; border-radius:8px; max-height:450px; overflow-y:auto; font-size:0.95rem; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">`;
                 
-                // Header (FIX: Time Opened vs Time Closed)
                 html += `<div style="text-align:center; font-weight:bold; font-size:1.2rem; margin-bottom:10px; color:var(--brand-dark);">ORDER #${o.id}</div>`;
                 html += `<div><strong>Opened:</strong> ${new Date(o.created_at).toLocaleString()}</div>`;
                 if (o.paid_at) { html += `<div><strong>Closed:</strong> ${new Date(o.paid_at).toLocaleString()}</div>`; }
@@ -357,7 +496,6 @@ try {
                 
                 html += `<div style="display:flex; justify-content:space-between;"><span>Subtotal:</span> <span>₱${parseFloat(o.subtotal).toFixed(2)}</span></div>`;
                 
-                // FIX: Reconstruct the Global Discount Label relationally!
                 if (parseFloat(o.discount_total) > 0) {
                     html += `<div style="display:flex; justify-content:space-between; color:#c62828;"><span>Total Discount:</span> <span>-₱${parseFloat(o.discount_total).toFixed(2)}</span></div>`;
                     
@@ -376,6 +514,11 @@ try {
                 }
                 
                 html += `<div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2rem; margin-top:10px; color:var(--brand);"><span>Grand Total:</span> <span>₱${parseFloat(o.grand_total).toFixed(2)}</span></div>`;
+                
+                // Staff Tip Display Fix incorporated here:
+                if (parseFloat(o.tip_amount) > 0) {
+                    html += `<div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1rem; margin-top:5px; color:#2e7d32;"><span>Staff Tip:</span> <span>₱${parseFloat(o.tip_amount).toFixed(2)}</span></div>`;
+                }
                 
                 if (data.payments && data.payments.length > 0) {
                     html += `<hr style="border-top:1px dashed #ccc; margin:15px 0;">`;

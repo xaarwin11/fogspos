@@ -807,8 +807,12 @@ function syncOrderState(d) {
     state.senior_details = d.order_info.senior_details || [];
 }
 
+let isSaving = false;
 window.saveOrder = async function(silent = false) {
+    if (isSaving) return;
     if (state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
+    isSaving = true;
+
     const response = await fetch('../api/save_order.php', {
         method: 'POST', 
         headers: { 
@@ -863,6 +867,7 @@ window.saveOrder = async function(silent = false) {
     } else {
         Swal.fire('Error', result.error, 'error');
     }
+    isSaving = false;
 };
 
 window.loadTakeout = async function(id) { 

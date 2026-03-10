@@ -29,7 +29,7 @@ try {
     $mysqli = get_db_conn();
     $mysqli->begin_transaction();
 
-    $o_stmt = $mysqli->prepare("SELECT grand_total, status FROM orders WHERE id = ?");
+    $o_stmt = $mysqli->prepare("SELECT grand_total, status FROM orders WHERE id = ? FOR UPDATE");
     $o_stmt->bind_param('i', $order_id);
     $o_stmt->execute();
     $order = $o_stmt->get_result()->fetch_assoc();

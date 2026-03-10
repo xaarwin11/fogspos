@@ -193,7 +193,7 @@ try {
                     $stmt->bind_param('sssisii', $username, $first_name, $last_name, $role_id, $hash, $pin_len, $id);
                 } else {
                     $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=? WHERE id=?");
-                    $stmt->bind_param('sssii', $username, $first_name, $last_name, $role_id, $id);
+                    $stmt->bind_param('sssisii', $username, $first_name, $last_name, $role_id, $hash, $pin_len, $id);
                 }
                 $stmt->execute();
             } else {
@@ -269,6 +269,28 @@ try {
             $log_stmt->execute();
             
             echo json_encode(['success' => true]); exit;
+        }
+
+        // Add this inside the if ($method === 'POST') block in api/settings_action.php
+        if ($action === 'filter_audit_log') {
+            $start = $input['start_date'] . ' 00:00:00';
+            $end = $input['end_date'] . ' 23:59:59';
+            
+            // We remove the LIMIT 100 because the user is now specifically asking for a range
+            $sql = "SELECT a.*, u.username 
+                    FROM audit_log a 
+                    JOIN users u ON a.user_id = u.id 
+                    WHERE a.created_at >= ? AND a.created_at <= ? 
+                    AND a.action_type NOT IN ('login', 'logout') 
+                    ORDER BY a.created_at DESC";
+                    
+            $stmt = $mysqli->prepare($sql);
+            $stmt->bind_param('ss', $start, $end);
+            $stmt->execute();
+            $logs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            
+            echo json_encode(['success' => true, 'audit_logs' => $logs]);
+            exit;
         }
 
         // --- ENTERPRISE TIMECARD EDITING & AUDIT ---

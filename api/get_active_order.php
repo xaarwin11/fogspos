@@ -65,23 +65,41 @@ try {
     $items_stmt->execute();
     $items_res = $items_stmt->get_result();
 
-    $cart = [];
+    // Fetch all items at once
+    $cart_items = [];
+    $item_ids = [];
     while ($row = $items_res->fetch_assoc()) {
-        $oi_id = (int)$row['id'];
-        $m_res = $mysqli->query("SELECT modifier_id as id, name, price FROM order_item_modifiers WHERE order_item_id = $oi_id");
-        $modifiers = [];
-        while($m = $m_res->fetch_assoc()) {
-            $m['id'] = (int)$m['id']; $m['price'] = (float)$m['price'];
-            $modifiers[] = $m;
-        }
+        $cart_items[] = $row;
+        $item_ids[] = (int)$row['id'];
+    }
 
+    $all_modifiers = [];
+    if (!empty($item_ids)) {
+        // Fetch ALL modifiers for ALL items in exactly ONE query!
+        $id_list = implode(',', $item_ids);
+        $m_res = $mysqli->query("SELECT order_item_id, modifier_id as id, name, price FROM order_item_modifiers WHERE order_item_id IN ($id_list)");
+        while ($m = $m_res->fetch_assoc()) {
+            $all_modifiers[$m['order_item_id']][] = [
+                'id' => (int)$m['id'],
+                'name' => $m['name'],
+                'price' => (float)$m['price']
+            ];
+        }
+    }
+
+    $cart = [];
+    foreach ($cart_items as $row) {
+        $oi_id = (int)$row['id'];
         $display_name = $row['variation_name'] ? $row['product_name'] . ' (' . $row['variation_name'] . ')' : $row['product_name'];
+        
         $cart[] = [
-           'id' => is_null($row['product_id']) ? 'custom_item' : (int)$row['product_id'], 'variation_id' => $row['variation_id'] ? (int)$row['variation_id'] : null,
+            'id' => is_null($row['product_id']) ? 'custom_item' : (int)$row['product_id'], 
+            'variation_id' => $row['variation_id'] ? (int)$row['variation_id'] : null,
             'name' => $display_name, 'price' => (float)$row['base_price'], 'qty' => (int)$row['quantity'],
             'discount_amount' => (float)$row['discount_amount'], 'discount_note' => $row['discount_note'], 
             'item_notes' => $row['item_notes'] ?? null,
-            'modifiers' => $modifiers
+            // Automatically grab the modifiers from the pre-loaded array!
+            'modifiers' => $all_modifiers[$oi_id] ?? [] 
         ];
     }
     echo json_encode(['success' => true, 'order_id' => $order_id, 'order_info' => $order, 'items' => $cart]);

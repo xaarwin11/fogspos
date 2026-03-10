@@ -286,7 +286,10 @@ class PrinterService
         $this->printer->selectPrintMode(Printer::MODE_FONT_A); 
 
         if (isset($meta['Tendered']) && isset($meta['Change'])) {
-            $this->printer->text($this->columnize("CASH", number_format($meta['Tendered'], 2)));
+            // Grab the actual payment method, default to CASH if empty, and make it uppercase!
+            $methodLabel = !empty($meta['Method']) ? mb_strtoupper((string)$meta['Method'], 'UTF-8') : "CASH";
+            
+            $this->printer->text($this->columnize($methodLabel, number_format($meta['Tendered'], 2)));
             $this->printer->text($this->columnize("CHANGE", number_format($meta['Change'], 2)));
         }
 

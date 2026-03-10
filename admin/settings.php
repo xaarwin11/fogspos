@@ -227,8 +227,23 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             </div>
 
             <div id="tab-audit" class="tab-pane">
-                <div class="header-row"><h2>Security & Audit Log</h2></div>
-                <p style="color:gray; font-size:0.9rem; margin-top:-10px;">A permanent record of sensitive actions (Refunds, Deletions, Payments).</p>
+                <div class="header-row" style="margin-bottom: 15px;">
+                    <h2>Security & Audit Log</h2>
+                </div>
+                
+                <div class="no-print" style="background:#f9fafb; padding:15px; border-radius:8px; border:1px solid #eee; display:flex; gap:15px; align-items:flex-end; margin-bottom:20px;">
+                    <div style="flex:1;">
+                        <label style="font-size:0.85rem; font-weight:bold;">Start Date</label>
+                        <input type="date" id="audit-start" class="swal2-input" style="margin:0; width:100%; height:40px; font-size:1rem;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:0.85rem; font-weight:bold;">End Date</label>
+                        <input type="date" id="audit-end" class="swal2-input" style="margin:0; width:100%; height:40px; font-size:1rem;">
+                    </div>
+                    <button class="btn success" style="height:40px; padding:0 20px;" onclick="filterAuditLog()">Filter Log</button>
+                    <button class="btn secondary" style="height:40px; padding:0 20px;" onclick="loadData()">Reset</button>
+                </div>
+
                 <div class="table-responsive">
                     <table class="settings-table">
                         <thead><tr><th>Date & Time</th><th>User</th><th>Action Type</th><th>Target</th><th>Detailed Logs</th></tr></thead>
@@ -666,6 +681,30 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
 
                 document.getElementById('pr-tbody').innerHTML = html;
                 document.getElementById('print-payroll-area').style.display = 'block';
+            }
+        }
+
+        async function filterAuditLog() {
+            const start = document.getElementById('audit-start').value;
+            const end = document.getElementById('audit-end').value;
+
+            if (!start || !end) return Swal.fire('Error', 'Please select a date range', 'warning');
+
+            Swal.fire({title:'Searching...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            
+            const res = await fetch('../api/settings_action.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+                body: JSON.stringify({ action: 'filter_audit_log', start_date: start, end_date: end })
+            });
+            const data = await res.json();
+            Swal.close();
+
+            if (data.success) {
+                sd.audit_logs = data.audit_logs; // Update the global state
+                renderAll(); // Re-render the table
+            } else {
+                Swal.fire('Error', data.error, 'error');
             }
         }
     </script>
