@@ -15,6 +15,11 @@ $user_role = $_SESSION['role'] ?? 'staff';
     <div class="nav-links">
         <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager','staff'])): ?>
             <a href="../admin/dashboard.php" style="color:white; text-decoration:none; font-weight:500;">📊 Dashboard</a>
+        <?php endif; ?>    
+        <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin'])): ?>    
+            <a href="../admin/reports.php" style="color:white; text-decoration:none; font-weight:500;">📊 Reports</a>
+        <?php endif; ?>
+        <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager','staff'])): ?>
             <a href="../admin/products.php" style="color:white; text-decoration:none; font-weight:500;">📦 Menu</a>
         <?php endif; ?>
         <?php if(isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'manager'])): ?>

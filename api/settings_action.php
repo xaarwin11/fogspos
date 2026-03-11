@@ -57,7 +57,7 @@ try {
                 'modifiers'  => safeQuery($mysqli, "SELECT * FROM modifiers ORDER BY name ASC"),
                 'discounts'  => $discounts, // Assign the variable here!
                 'roles'      => safeQuery($mysqli, "SELECT * FROM roles"),
-                'users'      => safeQuery($mysqli, "SELECT u.id, u.username, u.first_name, u.last_name, u.role_id, r.role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.is_active = 1 ORDER BY u.username ASC"),
+                'users' => safeQuery($mysqli, "SELECT u.id, u.username, u.first_name, u.last_name, u.role_id, u.hourly_rate, r.role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.is_active = 1 ORDER BY u.username ASC"),
                 'printers'   => safeQuery($mysqli, "SELECT * FROM printers WHERE is_active = 1 ORDER BY name ASC"),
                 'settings'   => safeQuery($mysqli, "SELECT * FROM system_settings"),
                 'timesheets' => safeQuery($mysqli, "SELECT t.*, u.username FROM time_tracking t JOIN users u ON t.user_id = u.id ORDER BY t.clock_in DESC LIMIT 100"),
@@ -183,33 +183,37 @@ try {
         if ($action === 'save_staff') {
             $id = !empty($input['id']) ? (int)$input['id'] : null;
             $username = $input['username']; $first_name = $input['first_name']; $last_name = $input['last_name'];
-            $role_id = (int)$input['role_id']; $pin = $input['pin'] ?? '';
+            $role_id = (int)$input['role_id']; 
+            $hourly_rate = (float)($input['hourly_rate'] ?? 0); // NEW: Catch the wage
+            $pin = $input['pin'] ?? '';
             
             if ($id) {
                 if (!empty($pin)) {
                     $hash = password_hash($pin, PASSWORD_DEFAULT);
-                    $pin_len = strlen($pin); // NEW: Count the PIN
-                    $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, passcode=?, pin_length=? WHERE id=?");
-                    $stmt->bind_param('sssisii', $username, $first_name, $last_name, $role_id, $hash, $pin_len, $id);
+                    $pin_len = strlen($pin); 
+                    $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, hourly_rate=?, passcode=?, pin_length=? WHERE id=?");
+                    // Note the string: sssidisii
+                    $stmt->bind_param('sssidisi', $username, $first_name, $last_name, $role_id, $hourly_rate, $hash, $pin_len, $id);
                 } else {
-                    $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=? WHERE id=?");
-                    $stmt->bind_param('sssisii', $username, $first_name, $last_name, $role_id, $hash, $pin_len, $id);
+                    $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, hourly_rate=? WHERE id=?");
+                    // Note the string: sssidi
+                    $stmt->bind_param('sssidi', $username, $first_name, $last_name, $role_id, $hourly_rate, $id);
                 }
                 $stmt->execute();
             } else {
                 if (empty($pin)) throw new Exception("New staff must have a PIN.");
                 $hash = password_hash($pin, PASSWORD_DEFAULT);
-                $pin_len = strlen($pin); // NEW: Count the PIN
-                $stmt = $mysqli->prepare("INSERT INTO users (username, first_name, last_name, role_id, passcode, pin_length, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)");
-                $stmt->bind_param('sssisi', $username, $first_name, $last_name, $role_id, $hash, $pin_len);
+                $pin_len = strlen($pin); 
+                $stmt = $mysqli->prepare("INSERT INTO users (username, first_name, last_name, role_id, hourly_rate, passcode, pin_length, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)");
+                $stmt->bind_param('sssidisi', $username, $first_name, $last_name, $role_id, $hourly_rate, $hash, $pin_len);
                 $stmt->execute();
-                $id = $mysqli->insert_id; // Keep this so the audit log works!
+                $id = $mysqli->insert_id; 
             }
 
             $ip = $_SERVER['REMOTE_ADDR'] ?? null;
             $action_log = $id ? 'user_updated' : 'user_created';
             $target_id = $id ? $id : $mysqli->insert_id;
-            $details = json_encode(['username' => $username, 'role_id' => $role_id]);
+            $details = json_encode(['username' => $username, 'role_id' => $role_id, 'rate' => $hourly_rate]);
             
             $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, ?, 'user', ?, ?, ?, NOW())");
             $log_stmt->bind_param('isiss', $_SESSION['user_id'], $action_log, $target_id, $details, $ip);

@@ -144,7 +144,7 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             <div id="tab-staff" class="tab-pane">
                 <div class="header-row"><h2>Staff Management</h2><button class="btn" onclick="promptStaff()">+ Add Staff</button></div>
                 <div class="table-responsive">
-                    <table class="settings-table"><thead><tr><th>Username</th><th>Role</th><th>Actions</th></tr></thead><tbody id="staff-tbody"></tbody></table>
+                    <table class="settings-table"><thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Hourly Rate</th><th>Actions</th></tr></thead><tbody id="staff-tbody"></tbody></table>
                 </div>
             </div>
 
@@ -333,7 +333,17 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             document.getElementById('print-tbody').innerHTML = html;
 
             html = '';
-            sd.users.forEach(u => html += `<tr><td style="font-weight:bold;">${u.username}</td><td>${u.role_name}</td><td class="action-links"><span class="edit" onclick='promptStaff(${JSON.stringify(u)})'>Edit</span><span class="delete" onclick="del('staff', ${u.id})">Delete</span></td></tr>`);
+            sd.users.forEach(u => {
+                const fullName = (u.first_name || u.username) + ' ' + (u.last_name || '');
+                const rate = parseFloat(u.hourly_rate || 0).toFixed(2);
+                html += `<tr>
+                    <td style="font-weight:bold;">${u.username}</td>
+                    <td>${fullName}</td>
+                    <td><span style="background:#e2e8f0; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold; text-transform:uppercase;">${u.role_name}</span></td>
+                    <td style="font-weight:bold; color:var(--brand-dark);">₱${rate}/hr</td>
+                    <td class="action-links"><span class="edit" onclick='promptStaff(${JSON.stringify(u)})'>Edit</span><span class="delete" onclick="del('staff', ${u.id})">Delete</span></td>
+                </tr>`;
+            });
             document.getElementById('staff-tbody').innerHTML = html;
 
             // RENDERING TIMESHEETS WITH GHOST SHIFT WARNINGS
@@ -487,13 +497,25 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 title: isEdit ? 'Edit Staff' : 'New Staff',
                 html: `
                     <input id="sw-name" class="swal2-input" placeholder="Username (Login)" value="${isEdit ? obj.username : ''}">
-                    <input id="sw-first" class="swal2-input" placeholder="First Name" value="${isEdit ? (obj.first_name||'') : ''}">
-                    <input id="sw-last" class="swal2-input" placeholder="Last Name" value="${isEdit ? (obj.last_name||'') : ''}">
+                    <div style="display:flex; gap:10px;">
+                        <input id="sw-first" class="swal2-input" style="width:50%; margin-top:10px;" placeholder="First Name" value="${isEdit ? (obj.first_name||'') : ''}">
+                        <input id="sw-last" class="swal2-input" style="width:50%; margin-top:10px;" placeholder="Last Name" value="${isEdit ? (obj.last_name||'') : ''}">
+                    </div>
                     <select id="sw-role" class="swal2-input">${rolesHtml}</select>
+                    <input type="number" id="sw-rate" class="swal2-input" placeholder="Hourly Rate (₱) e.g. 60.00" step="0.01" value="${isEdit ? (obj.hourly_rate||'') : ''}">
                     <input type="password" id="sw-pin" class="swal2-input" placeholder="${isEdit ? 'Leave blank to keep old PIN' : 'Enter New PIN'}">
                 `,
                 focusConfirm: false, showCancelButton: true, confirmButtonColor: '#6B4226',
-                preConfirm: () => { return { username: document.getElementById('sw-name').value, first_name: document.getElementById('sw-first').value, last_name: document.getElementById('sw-last').value, role_id: document.getElementById('sw-role').value, pin: document.getElementById('sw-pin').value }; }
+                preConfirm: () => { 
+                    return { 
+                        username: document.getElementById('sw-name').value, 
+                        first_name: document.getElementById('sw-first').value, 
+                        last_name: document.getElementById('sw-last').value, 
+                        role_id: document.getElementById('sw-role').value, 
+                        hourly_rate: parseFloat(document.getElementById('sw-rate').value) || 0,
+                        pin: document.getElementById('sw-pin').value 
+                    }; 
+                }
             });
             if (form) save('staff', { id: isEdit ? obj.id : null, ...form });
         }
