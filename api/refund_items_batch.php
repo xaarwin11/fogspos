@@ -20,7 +20,6 @@ try {
     $mysqli = get_db_conn();
     $mysqli->begin_transaction();
 
-    // 1. Verify Manager PIN
     $stmt = $mysqli->prepare("SELECT id, role_id, passcode FROM users WHERE is_active = 1");
     $stmt->execute();
     $users = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -29,49 +28,48 @@ try {
     $manager_id = null;
     foreach ($users as $u) {
         if (password_verify($pin, $u['passcode'])) {
-            if (in_array((int)$u['role_id'], [1, 2])) { 
-                $manager_id = $u['id']; break;
-            }
+            if (in_array((int)$u['role_id'], [1, 2])) { $manager_id = $u['id']; break; }
         }
     }
-    if (!$manager_id) throw new Exception("Invalid PIN or insufficient privileges.");
+    if (!$manager_id) throw new Exception("Invalid PIN or privileges.");
 
     $total_refund_amount = 0;
-    
-    // 2. Loop through and partially void the selected quantities
-    $u_item = $mysqli->prepare("UPDATE order_items SET quantity = quantity - ?, line_total = line_total - ?, discount_note = CONCAT(COALESCE(discount_note, ''), ?) WHERE id = ?");
-    
+    foreach ($items_to_refund as $item) { $total_refund_amount += (float)$item['amount']; }
+
+    // 1. Create Master Refund Record
+    $r_stmt = $mysqli->prepare("INSERT INTO refunds (order_id, manager_id, reason, total_amount, created_at) VALUES (?, ?, ?, ?, NOW())");
+    $r_stmt->bind_param('iisd', $order_id, $manager_id, $reason, $total_refund_amount);
+    $r_stmt->execute();
+    $refund_id = $mysqli->insert_id;
+    $r_stmt->close();
+
+    // 2. Create Refund Items
+    $ri_stmt = $mysqli->prepare("INSERT INTO refund_items (refund_id, order_item_id, qty, amount) VALUES (?, ?, ?, ?)");
     foreach ($items_to_refund as $item) {
         $order_item_id = (int)$item['id'];
         $qty_refunded = (int)$item['qty'];
         $amount = (float)$item['amount'];
-        $total_refund_amount += $amount;
-        
-        $note_append = " [Refunded {$qty_refunded}x]";
-        
-        $u_item->bind_param('idsi', $qty_refunded, $amount, $note_append, $order_item_id);
-        $u_item->execute();
+        $ri_stmt->bind_param('iiid', $refund_id, $order_item_id, $qty_refunded, $amount);
+        $ri_stmt->execute();
     }
-    $u_item->close();
+    $ri_stmt->close();
 
-    // 3. Deduct from the Grand Total & Subtotal
+    // 3. PURE RELATIONAL: Only update the financial totals on the main order!
     $u_order = $mysqli->prepare("UPDATE orders SET grand_total = grand_total - ?, subtotal = subtotal - ? WHERE id = ?");
     $u_order->bind_param('ddi', $total_refund_amount, $total_refund_amount, $order_id);
     $u_order->execute();
     $u_order->close();
 
-    // 4. Inject Negative Payment to fix the Cash Drawer
     $neg_amount = -$total_refund_amount;
     $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, 'cash', ?, 0, ?, NOW())");
     $p_stmt->bind_param('idi', $order_id, $neg_amount, $manager_id);
     $p_stmt->execute();
     $p_stmt->close();
 
-    // 5. Audit Trail
-    $ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
-    $details = json_encode(['items_count' => count($items_to_refund), 'total_refund' => $total_refund_amount, 'reason' => $reason]);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $details = json_encode(['refund_id' => $refund_id, 'total' => $total_refund_amount]);
     $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'batch_item_refund', 'order', ?, ?, ?, NOW())");
-    $log_stmt->bind_param('iiss', $manager_id, $order_id, $details, $ip_address);
+    $log_stmt->bind_param('iiss', $manager_id, $order_id, $details, $ip);
     $log_stmt->execute();
     $log_stmt->close();
 

@@ -66,7 +66,8 @@ try {
     }
 
     $existing_map = [];
-    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, item_notes FROM order_items WHERE order_id = ?");
+    // FIX #1: Added line_total to this SELECT query!
+    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, line_total, item_notes FROM order_items WHERE order_id = ?");
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
     $e_res = $e_stmt->get_result();
@@ -188,12 +189,47 @@ try {
         }
     }
 
-    foreach ($existing_map as $e_item) {
+    // ====================================================================
+    // KITCHEN WASTE TRACKING: Relational Void Logging
+    // ====================================================================
+    $items_to_void = [];
+    foreach ($existing_map as $key => $e_item) {
         if (!in_array($e_item['id'], $processed_ids)) {
-            $del_item->bind_param('i', $e_item['id']); $del_item->execute();
-            $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
-            $del_mods->bind_param('i', $e_item['id']); $del_mods->execute(); $del_mods->close();
+            $items_to_void[] = $e_item;
         }
+    }
+
+    if (!empty($items_to_void)) {
+        // 1. Create the Master Void Entry
+        $v_reason = "Removed from active cart/Kitchen Cancel";
+        $v_stmt = $mysqli->prepare("INSERT INTO voids (order_id, manager_id, reason) VALUES (?, ?, ?)");
+        $v_stmt->bind_param('iis', $order_id, $_SESSION['user_id'], $v_reason);
+        $v_stmt->execute();
+        $void_id = $mysqli->insert_id;
+        $v_stmt->close();
+
+        // 2. Prepare statements for items and modifiers deletion
+        $vi_stmt = $mysqli->prepare("INSERT INTO void_items (void_id, product_name, quantity, amount) VALUES (?, ?, ?, ?)");
+        $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
+
+        foreach ($items_to_void as $item) {
+            // FIX #2: Explicitly cast to prevent NULL errors
+            $void_qty = isset($item['quantity']) ? (int)$item['quantity'] : 1;
+            $void_amt = isset($item['line_total']) ? (float)$item['line_total'] : 0.00;
+
+            // 3. Log into void_items
+            $vi_stmt->bind_param('isid', $void_id, $item['product_name'], $void_qty, $void_amt);
+            $vi_stmt->execute();
+
+            // 4. Cleanly delete from active cart
+            $del_mods->bind_param('i', $item['id']);
+            $del_mods->execute();
+            
+            $del_item->bind_param('i', $item['id']);
+            $del_item->execute();
+        }
+        $vi_stmt->close();
+        $del_mods->close();
     }
 
     $global_discount_amount = 0;

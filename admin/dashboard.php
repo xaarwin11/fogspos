@@ -474,16 +474,35 @@ try {
                 
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Type:</span> <span style="font-weight:bold;">${o.order_type.toUpperCase()} ${o.table_number ? '(T-'+o.table_number+')' : ''}</span></div>`;
                 if (o.cashier) html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Cashier:</span> <span>${o.cashier}</span></div>`;
-                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : '#d97706')}">${o.status.toUpperCase()}</span></div>`;
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : (o.status === 'refunded' ? '#dc2626' : '#d97706'))}">${o.status.toUpperCase()}</span></div>`;
+
+                // Only show void_reason if it's a true UNPAID void
+                if (o.void_reason && o.status === 'voided') {
+                    html += `<div style="margin-top: 5px; padding: 5px; background: #ffebee; border-left: 3px solid #c62828;"><strong>Void Reason:</strong> <span style="color:#c62828; font-weight:bold;">${o.void_reason}</span></div>`;
+                }
 
                 html += `<div style="border-top:1px dashed #94a3b8; margin:15px 0;"></div>`;
                 
                 data.items.forEach(i => {
                     let name = i.variation_name ? `${i.product_name} (${i.variation_name})` : i.product_name;
-                    let isRefunded = i.discount_note && i.discount_note.includes('[Refunded');
                     
-                    let textStyle = isRefunded ? 'text-decoration: line-through; color: #ef4444; opacity: 0.8;' : 'color: #0f172a;';
-                    let badge = isRefunded ? `<div style="color:#dc2626; font-size:0.75rem; font-weight:bold; margin-top:2px;">${i.discount_note.match(/\[Refunded.*?\]/)[0]}</div>` : '';
+                    let refQty = parseInt(i.refunded_qty) || 0;
+                    let qty = parseInt(i.quantity);
+                    let isFullyRefunded = refQty === qty;
+                    let isPartiallyRefunded = refQty > 0 && refQty < qty;
+                    let isOrderVoided = (o.status === 'voided'); 
+                    
+                    // Strike through if Refunded OR Voided
+                    let textStyle = (isFullyRefunded || isOrderVoided) ? 'text-decoration: line-through; color: #ef4444; opacity: 0.8;' : 'color: #0f172a;';
+                    
+                    let badge = '';
+                    if (isOrderVoided) {
+                        badge = `<div style="color:#dc2626; font-size:0.75rem; font-weight:bold; margin-top:2px;">[VOIDED]</div>`;
+                    } else if (isFullyRefunded) {
+                        badge = `<div style="color:#dc2626; font-size:0.75rem; font-weight:bold; margin-top:2px;">[REFUNDED]</div>`;
+                    } else if (isPartiallyRefunded) {
+                        badge = `<div style="color:#f59e0b; font-size:0.75rem; font-weight:bold; margin-top:2px;">[${refQty} REFUNDED]</div>`;
+                    }
 
                     html += `<div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
                                 <div style="flex:1; padding-right:15px;">
@@ -497,7 +516,7 @@ try {
                         html += `<div style="color:#64748b; font-size:0.8rem; padding-left:15px; margin-top:-5px; margin-bottom:5px; ${textStyle}">+ ${m.name}</div>`;
                     });
                     
-                    if (parseFloat(i.discount_amount) > 0 && !isRefunded) {
+                    if (parseFloat(i.discount_amount) > 0) {
                         html += `<div style="color:#dc2626; font-size:0.8rem; padding-left:15px; margin-top:-5px; margin-bottom:5px;">- Disc: ₱${parseFloat(i.discount_amount).toFixed(2)} ${i.discount_note ? `(${i.discount_note})` : ''}</div>`;
                     }
                 });
@@ -518,9 +537,46 @@ try {
                         html += `<div style="display:flex; justify-content:space-between; ${isRefund ? 'color:#dc2626; font-weight:bold;' : 'color:#475569;'} margin-bottom:3px;"><span>${p.method.toUpperCase()} ${isRefund ? 'Refunded' : 'Tendered'}:</span> <span>₱${parseFloat(Math.abs(p.amount)).toFixed(2)}</span></div>`;
                     });
                 }
+
+                // DYNAMIC RELATIONAL REFUND HISTORY BLOCK
+                if (data.refund_logs && data.refund_logs.length > 0) {
+                    html += `<div style="border-top:2px solid #dc2626; margin:15px 0 10px 0;"></div>`;
+                    html += `<div style="margin-bottom:8px; font-weight:900; color:#dc2626; text-transform:uppercase; font-size:0.8rem;">Refund History</div>`;
+                    
+                    data.refund_logs.forEach(log => {
+                        html += `
+                        <div style="background:#fef2f2; border-left:3px solid #dc2626; padding:10px; margin-bottom:8px; border-radius:0 4px 4px 0;">
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; color:#b91c1c; margin-bottom:3px;">
+                                <span>₱${parseFloat(log.total_amount).toFixed(2)} Refunded</span>
+                                <span style="font-size:0.8rem;">${new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            </div>
+                            <div style="color:#7f1d1d; font-size:0.85rem;"><strong>By:</strong> ${log.manager_name}</div>
+                            <div style="color:#991b1b; font-size:0.85rem; font-style:italic;">"${log.reason}"</div>
+                        </div>`;
+                    });
+                }
+
+                // DYNAMIC RELATIONAL VOID HISTORY BLOCK (Kitchen Waste)
+                if (data.void_logs && data.void_logs.length > 0) {
+                    html += `<div style="border-top:2px solid #f59e0b; margin:15px 0 10px 0;"></div>`;
+                    html += `<div style="margin-bottom:8px; font-weight:900; color:#b45309; text-transform:uppercase; font-size:0.8rem;">Voids</div>`;
+                    
+                    data.void_logs.forEach(log => {
+                        html += `
+                        <div style="background:#fffbeb; border-left:3px solid #f59e0b; padding:10px; margin-bottom:8px; border-radius:0 4px 4px 0;">
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; color:#b45309; margin-bottom:3px;">
+                                <span>Removed Items</span>
+                                <span style="font-size:0.8rem;">${new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            </div>
+                            <div style="color:#92400e; font-size:0.85rem; font-weight:bold; margin-bottom:3px;">${log.voided_summary}</div>
+                            <div style="color:#78350f; font-size:0.85rem;"><strong>By:</strong> ${log.manager_name || 'System'}</div>
+                            <div style="color:#92400e; font-size:0.85rem; font-style:italic;">"${log.reason}"</div>
+                        </div>`;
+                    });
+                }
+
                 html += `</div>`; 
                 
-                // Desktop: 420px fixed width. Mobile: Naturally shrinks.
                 Swal.fire({
                     title: false, html: html, width: 420,
                     showConfirmButton: true, confirmButtonText: 'Close', confirmButtonColor: '#475569',
@@ -561,8 +617,14 @@ try {
                 title: `⚠️ Refund Entire Bill`,
                 html: `
                     <div style="margin-bottom:15px; font-size:0.9rem; color:gray;">Refunding will return <b>₱${parseFloat(amount).toFixed(2)}</b> and update the Z-Report.</div>
-                    <input type="text" id="ref-reason" class="swal2-input" placeholder="Reason (e.g., Cold Food, Mistake)">
-                    <input type="password" id="ref-pin" class="swal2-input" placeholder="Manager PIN Required">
+                    <div style="text-align:left; margin-bottom:15px;">
+                        <label style="font-size:0.8rem; font-weight:bold; color:#475569; text-transform:uppercase;">Reason for Refund</label>
+                        <input type="text" id="ref-reason" placeholder="e.g. Cold Food, Mistake" style="width: 100%; box-sizing: border-box; padding: 12px; margin-top: 5px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; outline: none; font-family: inherit;">
+                    </div>
+                    <div style="text-align:center;">
+                        <label style="font-size:0.8rem; font-weight:bold; color:#475569; text-transform:uppercase;">Manager PIN</label>
+                        <input type="password" id="ref-pin" placeholder="****" inputmode="numeric" style="width: 140px; box-sizing: border-box; padding: 12px; margin: 8px auto 0 auto; display: block; text-align: center; font-size: 1.5rem; letter-spacing: 8px; border: 2px solid #cbd5e1; border-radius: 8px; outline: none; font-family: monospace;">
+                    </div>
                 `,
                 icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize Full Refund', confirmButtonColor: '#dc2626',
                 preConfirm: () => {
@@ -575,20 +637,25 @@ try {
 
             if (formValues) {
                 const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                Swal.fire({title:'Processing Refund...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
                 try {
                     const res = await fetch('../api/refund_order.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
                         body: JSON.stringify({ order_id: orderId, pin: formValues.pin, reason: formValues.reason })
                     });
-                    const data = await res.json();
-                    if (data.success) {
-                        Swal.fire({icon: 'success', title: 'Refund Processed', timer: 2000, showConfirmButton: false})
-                        .then(() => fetchLiveUpdates());
-                    } else {
-                        Swal.fire('Declined', data.error, 'error');
+                    const text = await res.text(); // Grab raw text first to catch PHP crashes
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            Swal.fire({icon: 'success', title: 'Refund Processed', timer: 2000, showConfirmButton: false}).then(() => fetchLiveUpdates());
+                        } else {
+                            Swal.fire('Declined', data.error, 'error');
+                        }
+                    } catch (err) {
+                        Swal.fire('Server Error', 'Raw response: ' + text.substring(0, 100), 'error');
                     }
-                } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
+                } catch(e) { Swal.fire('Network Error', 'Could not reach server.', 'error'); }
             }
         };
 
@@ -639,11 +706,11 @@ try {
                     ${checklistHtml}
                     <div style="text-align:left; margin-bottom:15px;">
                         <label style="font-size:0.8rem; font-weight:bold; color:#475569; text-transform:uppercase;">Reason for Refund</label>
-                        <input type="text" id="ri-reason" class="swal2-input" placeholder="e.g. Spilled, Customer complaint" style="margin-top:5px; font-size:1rem;">
+                        <input type="text" id="ri-reason" placeholder="e.g. Spilled, Customer complaint" style="width: 100%; box-sizing: border-box; padding: 12px; margin-top: 5px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; outline: none; font-family: inherit;">
                     </div>
-                    <div style="text-align:left;">
+                    <div style="text-align:center;">
                         <label style="font-size:0.8rem; font-weight:bold; color:#475569; text-transform:uppercase;">Manager PIN</label>
-                        <input type="password" id="ri-pin" class="swal2-input" placeholder="****" inputmode="numeric" style="margin-top:5px; text-align:center; font-size:1.5rem; letter-spacing:5px;">
+                        <input type="password" id="ri-pin" placeholder="****" inputmode="numeric" style="width: 140px; box-sizing: border-box; padding: 12px; margin: 8px auto 0 auto; display: block; text-align: center; font-size: 1.5rem; letter-spacing: 8px; border: 2px solid #cbd5e1; border-radius: 8px; outline: none; font-family: monospace;">
                     </div>
                 `,
                 showCancelButton: true, confirmButtonText: 'Authorize Partial Refund', confirmButtonColor: '#6B4226', width: 420,
@@ -667,22 +734,26 @@ try {
             });
 
             if (formValues) {
-                Swal.fire({title:'Processing Refund...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
                 const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                Swal.fire({title:'Processing Refund...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
                 try {
                     const res = await fetch('../api/refund_items_batch.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
                         body: JSON.stringify({ order_id: orderId, items: formValues.items, reason: formValues.reason, pin: formValues.pin })
                     });
-                    const data = await res.json();
-                    
-                    if (data.success) {
-                        Swal.fire('Refund Successful', 'The items have been voided and the cash drawer ledger has been updated.', 'success').then(() => {
-                            viewOrderDetails(orderId);
-                        });
-                    } else { Swal.fire('Declined', data.error, 'error'); }
-                } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
+                    const text = await res.text();
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            Swal.fire('Refund Successful', 'The items have been voided and the cash drawer ledger has been updated.', 'success').then(() => {
+                                viewOrderDetails(orderId);
+                            });
+                        } else { Swal.fire('Declined', data.error, 'error'); }
+                    } catch (err) {
+                        Swal.fire('Server Error', 'Raw response: ' + text.substring(0, 100), 'error');
+                    }
+                } catch(e) { Swal.fire('Network Error', 'Could not reach server.', 'error'); }
             }
         };
     </script>
