@@ -476,11 +476,6 @@ try {
                 if (o.cashier) html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Cashier:</span> <span>${o.cashier}</span></div>`;
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : (o.status === 'refunded' ? '#dc2626' : '#d97706'))}">${o.status.toUpperCase()}</span></div>`;
 
-                // Only show void_reason if it's a true UNPAID void
-                if (o.void_reason && o.status === 'voided') {
-                    html += `<div style="margin-top: 5px; padding: 5px; background: #ffebee; border-left: 3px solid #c62828;"><strong>Void Reason:</strong> <span style="color:#c62828; font-weight:bold;">${o.void_reason}</span></div>`;
-                }
-
                 html += `<div style="border-top:1px dashed #94a3b8; margin:15px 0;"></div>`;
                 
                 data.items.forEach(i => {
