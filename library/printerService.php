@@ -132,9 +132,9 @@ class PrinterService
             $tin = $meta['TIN'] ?? "";
             
             $this->printer->setEmphasis(true);
-            $this->printer->text($tax_status . "\n"); 
-            $this->printer->setEmphasis(false);
+            $this->printer->text($tax_status . " "); 
             $this->printer->text($tin . "\n");
+            $this->printer->setEmphasis(false);
 
             if (!empty($meta['Address'])) $this->printer->text($meta['Address'] . "\n");
             if (!empty($meta['Phone'])) $this->printer->text("Tel: " . $meta['Phone'] . "\n");

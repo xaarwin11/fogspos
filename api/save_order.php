@@ -66,7 +66,6 @@ try {
     }
 
     $existing_map = [];
-    // We added product_name, base_price, and item_notes to the SELECT query!
     $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, item_notes FROM order_items WHERE order_id = ?");
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
@@ -81,7 +80,6 @@ try {
         $m_res = $m_stmt->get_result();
         $m_ids = []; while($m = $m_res->fetch_assoc()) $m_ids[] = $m['modifier_id'];
         
-        // BULLETPROOF KEY: Includes Name (for custom items), Price, and Notes!
         $pid_part = is_null($row['product_id']) ? 'custom_' . md5($row['product_name']) : $row['product_id'];
         $price_part = number_format((float)$row['base_price'], 2, '.', '');
         $note_part = md5($row['item_notes'] ?? '');
@@ -97,18 +95,40 @@ try {
     $del_item = $mysqli->prepare("DELETE FROM order_items WHERE id = ?");
     $ins_mod  = $mysqli->prepare("INSERT INTO order_item_modifiers (order_item_id, modifier_id, name, price) VALUES (?, ?, ?, ?)");
     
-    $get_prod = $mysqli->prepare("SELECT name, price FROM products WHERE id = ?");
-    $get_var = $mysqli->prepare("SELECT name, price FROM product_variations WHERE id = ?");
-    $get_mod = $mysqli->prepare("SELECT name, price FROM modifiers WHERE id = ?");
+    // ====================================================================
+    // PERFORMANCE UPGRADE: Bulk fetch products, variations, and modifiers!
+    // ====================================================================
+    $p_ids = []; $v_ids = []; $m_ids_all = [];
+    foreach ($items as $item) {
+        if ($item['id'] !== 'custom_item') $p_ids[] = (int)$item['id'];
+        if (!empty($item['variation_id'])) $v_ids[] = (int)$item['variation_id'];
+        foreach (($item['modifiers'] ?? []) as $m) $m_ids_all[] = (int)$m['id'];
+    }
+    
+    $products_map = [];
+    if (!empty($p_ids)) {
+        $list = implode(',', array_unique($p_ids));
+        $res = $mysqli->query("SELECT id, name, price FROM products WHERE id IN ($list)");
+        while ($r = $res->fetch_assoc()) $products_map[$r['id']] = $r;
+    }
+    $variations_map = [];
+    if (!empty($v_ids)) {
+        $list = implode(',', array_unique($v_ids));
+        $res = $mysqli->query("SELECT id, name, price FROM product_variations WHERE id IN ($list)");
+        while ($r = $res->fetch_assoc()) $variations_map[$r['id']] = $r;
+    }
+    $modifiers_map = [];
+    if (!empty($m_ids_all)) {
+        $list = implode(',', array_unique($m_ids_all));
+        $res = $mysqli->query("SELECT id, name, price FROM modifiers WHERE id IN ($list)");
+        while ($r = $res->fetch_assoc()) $modifiers_map[$r['id']] = $r;
+    }
 
     $processed_ids = [];
 
     foreach ($items as $item) {
-        // ====================================================================
-        // FIX 1: THE OFF-MENU INTERCEPTOR
-        // ====================================================================
         $is_custom = ($item['id'] === 'custom_item');
-        $p_id = $is_custom ? null : (int)$item['id']; // Leave product_id NULL in the database
+        $p_id = $is_custom ? null : (int)$item['id']; 
         
         $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; 
         $qty = (int)$item['qty'];
@@ -118,29 +138,24 @@ try {
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
 
-        // Figure out the price and name FIRST
+        // Fetch prices from Memory Maps instead of hitting the database!
         $base_p = 0; $p_name = ''; $v_name = null;
         
         if ($is_custom) {
             $base_p = (float)$item['price'];
             $p_name = $item['name'];
         } else {
-            $get_prod->bind_param('i', $p_id); $get_prod->execute();
-            if ($p_data = $get_prod->get_result()->fetch_assoc()) { 
-                $base_p = (float)$p_data['price']; 
-                $p_name = $p_data['name']; 
-                if ($base_p == 0) {
-                    $base_p = (float)$item['price']; 
-                }
+            if (isset($products_map[$p_id])) {
+                $base_p = (float)$products_map[$p_id]['price'];
+                $p_name = $products_map[$p_id]['name'];
+                if ($base_p == 0) $base_p = (float)$item['price'];
             }
         }
-
-        if ($v_id && !$is_custom) {
-            $get_var->bind_param('i', $v_id); $get_var->execute();
-            if ($v_data = $get_var->get_result()->fetch_assoc()) { $base_p = (float)$v_data['price']; $v_name = $v_data['name']; }
+        if ($v_id && !$is_custom && isset($variations_map[$v_id])) {
+            $base_p = (float)$variations_map[$v_id]['price']; 
+            $v_name = $variations_map[$v_id]['name']; 
         }
 
-        // NOW GENERATE THE BULLETPROOF KEY:
         $pid_part = $is_custom ? 'custom_' . md5($p_name) : $p_id;
         $price_part = number_format($base_p, 2, '.', '');
         $note_part = md5($item_note ?? '');
@@ -149,8 +164,8 @@ try {
         $mod_total = 0; $resolved_mods = [];
         foreach (($item['modifiers'] ?? []) as $m) {
             $mid = (int)$m['id'];
-            $get_mod->bind_param('i', $mid); $get_mod->execute();
-            if ($md = $get_mod->get_result()->fetch_assoc()) {
+            if (isset($modifiers_map[$mid])) {
+                $md = $modifiers_map[$mid];
                 $mod_total += (float)$md['price']; 
                 $resolved_mods[] = ['id' => $mid, 'name' => $md['name'], 'price' => (float)$md['price']];
             }
@@ -184,9 +199,6 @@ try {
     $global_discount_amount = 0;
     $EXCLUDED_CATEGORY_ID = 7; 
     
-    // ====================================================================
-    // FIX 2: LEFT JOIN PREVENTS CUSTOM ITEMS FROM CRASHING THE DISCOUNT LOOP
-    // ====================================================================
     $oi_stmt = $mysqli->prepare("SELECT o.id, COALESCE(p.category_id, 0) as category_id, COALESCE(c.cat_type, 'other') as cat_type, (o.base_price + o.modifier_total) as unit_price, o.quantity, o.line_total FROM order_items o LEFT JOIN products p ON o.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id WHERE o.order_id = ?");
     $oi_stmt->bind_param('i', $order_id);
     $oi_stmt->execute();
@@ -256,11 +268,9 @@ try {
                 $discount_note = null; 
             }
         }
-    } // <-- Notice we closed the main discount if-statement here!
+    }
 
-    // NEW: Use a standard 'if' instead of 'else if' so they can stack!
     if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
-        
         $c_type = $custom_discount['type'] ?? 'amount';
         $c_val = (float)($custom_discount['val'] ?? 0);
         $c_target = $custom_discount['target'] ?? 'all';
@@ -290,11 +300,8 @@ try {
             $custom_amt = min($c_val, $target_subtotal);
         }
 
-        // STACK THE MATH: Add the rounding to whatever SC/PWD discount is already there!
         $global_discount_amount += $custom_amt;
         
-        // Append the note so the receipt shows both!
-        // Ensure "Custom:" is present so the JS can detect it on reload
         $c_label = (strpos($c_note, 'Custom:') === false) ? "Custom: " . $c_note : $c_note;
         if ($discount_note) {
             $discount_note .= " + " . $c_label; 

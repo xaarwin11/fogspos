@@ -20,7 +20,7 @@ if (!$order_id) {
 try {
     $mysqli = get_db_conn();
     
-    // FIX: Relational JOIN to grab the discount name and type!
+    // Relational JOIN to grab the discount name and type
     $o_stmt = $mysqli->prepare("
         SELECT o.*, t.table_number, u.username as cashier, d.name as discount_name, d.type as discount_type, d.value as discount_value 
         FROM orders o 
@@ -36,7 +36,7 @@ try {
     
     if (!$order) throw new Exception("Order not found.");
 
-    // FIX: Fetch SC details if they exist
+    // Fetch SC details if they exist
     $sc_stmt = $mysqli->prepare("SELECT * FROM order_sc_pwd WHERE order_id = ?");
     $sc_stmt->bind_param('i', $order_id);
     $sc_stmt->execute();
@@ -49,16 +49,24 @@ try {
     $items_res = $i_stmt->get_result();
     $i_stmt->close();
     
-    $items = [];
-    $m_stmt = $mysqli->prepare("SELECT name, price FROM order_item_modifiers WHERE order_item_id = ?");
-    
+    // PERFORMANCE FIX: Fetch all modifiers in ONE query instead of N+1
+    $items_map = [];
+    $item_ids = [];
     while ($row = $items_res->fetch_assoc()) {
-        $m_stmt->bind_param('i', $row['id']);
-        $m_stmt->execute();
-        $row['modifiers'] = $m_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $items[] = $row;
+        $row['modifiers'] = []; // Initialize empty array
+        $items_map[$row['id']] = $row;
+        $item_ids[] = (int)$row['id'];
     }
-    $m_stmt->close();
+    
+    if (!empty($item_ids)) {
+        $id_list = implode(',', $item_ids);
+        $m_res = $mysqli->query("SELECT order_item_id, name, price FROM order_item_modifiers WHERE order_item_id IN ($id_list)");
+        while ($m = $m_res->fetch_assoc()) {
+            $items_map[$m['order_item_id']]['modifiers'][] = $m;
+        }
+    }
+    
+    $items = array_values($items_map); // Re-index for the JSON response
 
     $p_stmt = $mysqli->prepare("SELECT method, amount, change_given, created_at FROM payments WHERE order_id = ? ORDER BY created_at ASC");
     $p_stmt->bind_param('i', $order_id);

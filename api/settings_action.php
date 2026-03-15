@@ -36,19 +36,24 @@ try {
     if (($_GET['action'] ?? '') === 'get_all') {
             
             $categories = safeQuery($mysqli, "SELECT * FROM categories ORDER BY id ASC");
+            $mod_stmt = $mysqli->prepare("SELECT modifier_id FROM category_modifiers WHERE category_id = ?");
             foreach($categories as &$c) {
-                $cid = $c['id'];
-                $mods = safeQuery($mysqli, "SELECT modifier_id FROM category_modifiers WHERE category_id = $cid");
+                $mod_stmt->bind_param('i', $c['id']);
+                $mod_stmt->execute();
+                $mods = $mod_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $c['modifiers'] = array_column($mods, 'modifier_id');
             }
+            $mod_stmt->close();
 
-            // FIX: Query the discounts BEFORE building the JSON array!
             $discounts = safeQuery($mysqli, "SELECT * FROM discounts ORDER BY name ASC");
+            $disc_stmt = $mysqli->prepare("SELECT category_id FROM discount_categories WHERE discount_id = ?");
             foreach ($discounts as &$d) {
-                $did = (int)$d['id'];
-                $cats = safeQuery($mysqli, "SELECT category_id FROM discount_categories WHERE discount_id = $did");
+                $disc_stmt->bind_param('i', $d['id']);
+                $disc_stmt->execute();
+                $cats = $disc_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $d['target_categories'] = array_column($cats, 'category_id');
             }
+            $disc_stmt->close();
 
             echo json_encode([
                 'success' => true, 
@@ -184,7 +189,7 @@ try {
             $id = !empty($input['id']) ? (int)$input['id'] : null;
             $username = $input['username']; $first_name = $input['first_name']; $last_name = $input['last_name'];
             $role_id = (int)$input['role_id']; 
-            $hourly_rate = (float)($input['hourly_rate'] ?? 0); // NEW: Catch the wage
+            $hourly_rate = (float)($input['hourly_rate'] ?? 0); 
             $pin = $input['pin'] ?? '';
             
             if ($id) {
@@ -192,11 +197,11 @@ try {
                     $hash = password_hash($pin, PASSWORD_DEFAULT);
                     $pin_len = strlen($pin); 
                     $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, hourly_rate=?, passcode=?, pin_length=? WHERE id=?");
-                    // Note the string: sssidisii
-                    $stmt->bind_param('sssidisi', $username, $first_name, $last_name, $role_id, $hourly_rate, $hash, $pin_len, $id);
+                    // FIX: Types are string, string, string, int, double, string, int, int (8 variables)
+                    $stmt->bind_param('sssidsii', $username, $first_name, $last_name, $role_id, $hourly_rate, $hash, $pin_len, $id);
                 } else {
                     $stmt = $mysqli->prepare("UPDATE users SET username=?, first_name=?, last_name=?, role_id=?, hourly_rate=? WHERE id=?");
-                    // Note the string: sssidi
+                    // FIX: Types are string, string, string, int, double, int (6 variables)
                     $stmt->bind_param('sssidi', $username, $first_name, $last_name, $role_id, $hourly_rate, $id);
                 }
                 $stmt->execute();
@@ -205,7 +210,8 @@ try {
                 $hash = password_hash($pin, PASSWORD_DEFAULT);
                 $pin_len = strlen($pin); 
                 $stmt = $mysqli->prepare("INSERT INTO users (username, first_name, last_name, role_id, hourly_rate, passcode, pin_length, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)");
-                $stmt->bind_param('sssidisi', $username, $first_name, $last_name, $role_id, $hourly_rate, $hash, $pin_len);
+                // FIX: Types are string, string, string, int, double, string, int (7 variables)
+                $stmt->bind_param('sssidsi', $username, $first_name, $last_name, $role_id, $hourly_rate, $hash, $pin_len);
                 $stmt->execute();
                 $id = $mysqli->insert_id; 
             }

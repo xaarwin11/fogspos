@@ -397,11 +397,60 @@ window.updateQty = function(idx, delta) {
     }
 };
 
-window.confirmRemoveItem = function(idx) {
-    Swal.fire({
-        title: 'Remove Item?', text: state.cart[idx].name, icon: 'warning',
-        showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes'
-    }).then((res) => { if (res.isConfirmed) { state.cart.splice(idx, 1); renderCart(); } });
+window.confirmRemoveItem = async function(idx) {
+    const item = state.cart[idx];
+
+    // If it's a brand new, unsaved order, just delete it normally (no PIN required)
+    if (!state.activeOrderId || state.activeOrderId === 'new') {
+        Swal.fire({
+            title: 'Remove Item?', text: item.name, icon: 'warning',
+            showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes'
+        }).then((res) => { if (res.isConfirmed) { state.cart.splice(idx, 1); renderCart(); } });
+        return;
+    }
+
+    // 🚨 SCENARIO A: The order was already saved to the database/kitchen! Require PIN.
+    const { value: formValues } = await Swal.fire({
+        title: `Void ${item.name}?`,
+        html: `
+            <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
+                This item is already active in the kitchen. Authorize void to remove it.
+            </div>
+            <input type="text" id="void-reason" class="swal2-input" placeholder="Reason (e.g., Customer changed mind)">
+            <input type="password" id="void-pin" class="swal2-input" placeholder="Manager PIN Required" inputmode="numeric">
+        `,
+        icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize Void', confirmButtonColor: '#d33',
+        preConfirm: () => {
+            const reason = document.getElementById('void-reason').value;
+            const pin = document.getElementById('void-pin').value;
+            if (!reason || !pin) { Swal.showValidationMessage('Both Reason and Manager PIN are required!'); return false; }
+            return { reason, pin };
+        }
+    });
+
+    if (formValues) {
+        Swal.fire({title:'Authorizing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+        
+        // Verify PIN via your existing auth logic
+        const authRes = await fetch('../api/auth_login.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passcode: formValues.pin }) 
+        });
+        const authData = await authRes.json();
+        
+        if (authData.success && (authData.user.role === 'admin' || authData.user.role === 'manager')) {
+            // Remove from cart and immediately save the database!
+            state.cart.splice(idx, 1);
+            await window.saveOrder(true);
+            
+            // Optional: Trigger a "Void Ticket" to print in the kitchen!
+            // fetch(`../api/print_order.php?order_id=${state.activeOrderId}&type=void_item&item_name=${encodeURIComponent(item.name)}`);
+            
+            Swal.fire('Voided!', 'Item removed successfully.', 'success');
+        } else {
+            Swal.fire('Declined', 'Invalid PIN or you do not have Manager privileges.', 'error');
+        }
+    }
 };
 
 window.editCartItem = async function(idx) {
