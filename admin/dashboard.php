@@ -109,15 +109,6 @@ try {
         .date-display { padding: 12px 25px; font-weight: 800; color: var(--text-main); position: relative; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }
         .hidden-date-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 
-        .refund-row { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s; align-items: center; }
-        .refund-row input[type="checkbox"] { width: 22px; height: 22px; accent-color: #dc2626; cursor: pointer; flex-shrink: 0; }
-
-        /* =========================================================
-           MOBILE OPTIMIZATION (Samsung Galaxy A11 & Tablets)
-           ========================================================= */
-           
-        /* 1. LANDSCAPE PHONES & SMALL TABLETS (e.g. 700px - 1024px) */
-        /* Keeps columns side-by-side but tightens the gaps! */
         @media (max-width: 1024px) {
             .dashboard-layout { margin: 15px auto; padding: 0 10px; }
             .bento-grid { grid-template-columns: 1.6fr 1fr; gap: 15px; } 
@@ -129,11 +120,9 @@ try {
             .table-responsive { padding: 0 15px 15px 15px !important; }
         }
 
-        /* 2. PORTRAIT PHONES ONLY (e.g. < 650px) */
-        /* This forces the stacking ONLY when you hold the phone upright */
         @media (max-width: 650px) {
             body { background-color: #f1f5f9; } 
-            .bento-grid { grid-template-columns: 1fr; } /* Stacks the Tender Breakdown underneath */
+            .bento-grid { grid-template-columns: 1fr; }
             
             .dashboard-header { flex-direction: column; align-items: stretch; text-align: center; gap: 12px; }
             .dashboard-header h1 { font-size: 1.6rem !important; }
@@ -149,7 +138,7 @@ try {
             .section-header input[type="text"] { width: 100% !important; box-sizing: border-box; }
             .section-header button { width: 100%; justify-content: center; }
 
-            .orders-table { min-width: 500px; /* Forces horizontal swipe */ }
+            .orders-table { min-width: 500px; }
             .orders-table th, .orders-table td { padding: 10px 8px; font-size: 0.85rem; }
             .orders-table button { padding: 8px 12px !important; font-size: 0.8rem; margin: 2px 0; }
         }
@@ -269,7 +258,7 @@ try {
                         </div>
                     </div>
                     <div class="table-responsive">
-                        <table class="orders-table">
+                        <table class="orders-table" id="shiftsTable">
                             <thead>
                                 <tr>
                                     <th>Time</th>
@@ -362,40 +351,28 @@ try {
     </div>
 
     <script>
-        // --- AUTO REFRESH LOGIC ---
         // --- SEAMLESS LIVE POLLING LOGIC ---
         let refreshTimer;
         
         async function fetchLiveUpdates() {
             try {
-                // Fetch the page in the background
                 const res = await fetch(window.location.href);
                 const text = await res.text();
-                
-                // Parse it into an invisible DOM
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(text, 'text/html');
                 
-                // 1. Update Stats Cards
                 document.querySelector('.stats-grid').innerHTML = doc.querySelector('.stats-grid').innerHTML;
-                
-                // 2. Update Order History Table
                 document.querySelector('#orderHistoryTable tbody').innerHTML = doc.querySelector('#orderHistoryTable tbody').innerHTML;
-                filterOrders(); // Re-apply user's search text instantly!
+                filterOrders(); 
                 
-                // 3. Update Shifts Table
                 if (document.querySelector('#shiftsTable')) {
                     document.querySelector('#shiftsTable tbody').innerHTML = doc.querySelector('#shiftsTable tbody').innerHTML;
                 }
-                
-                // 4. Update Best Sellers & Tender Breakdown (Right Column)
                 if (document.querySelector('.right-col')) {
                     document.querySelector('.right-col').innerHTML = doc.querySelector('.right-col').innerHTML;
                 }
-
-            } catch(e) { console.error('Live update failed:', e); }
+            } catch(e) {}
             
-            // Schedule the next check
             if (sessionStorage.getItem('liveMode') === 'true') {
                 refreshTimer = setTimeout(fetchLiveUpdates, 60000);
             }
@@ -404,14 +381,13 @@ try {
         function toggleAutoRefresh() {
             if (document.getElementById('autoRefreshToggle').checked) {
                 sessionStorage.setItem('liveMode', 'true');
-                fetchLiveUpdates(); // Trigger immediately, no reload!
+                fetchLiveUpdates(); 
             } else {
                 sessionStorage.setItem('liveMode', 'false');
                 clearTimeout(refreshTimer);
             }
         }
         
-        // Start automatically on page load if checked
         if (sessionStorage.getItem('liveMode') === 'true') {
             document.getElementById('autoRefreshToggle').checked = true;
             refreshTimer = setTimeout(fetchLiveUpdates, 60000);
@@ -471,13 +447,14 @@ try {
                         });
                         const data = await res.json();
                         if (data.success) {
-                            Swal.fire({icon: 'success', title: 'Order Voided', timer: 1000, showConfirmButton: false}).then(() => window.location.reload());
+                            Swal.fire({icon: 'success', title: 'Order Voided', timer: 1000, showConfirmButton: false}).then(() => fetchLiveUpdates());
                         } else { Swal.fire('Error', data.error || 'Could not void order.', 'error'); }
                     } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
                 }
             });
         }
         
+        // --- 1. RECEIPT MODAL NOW RESTRICTED TO 420px (80mm styling) ---
         async function viewOrderDetails(orderId) {
             try {
                 Swal.fire({title: 'Loading Receipt...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
@@ -503,10 +480,10 @@ try {
                 
                 data.items.forEach(i => {
                     let name = i.variation_name ? `${i.product_name} (${i.variation_name})` : i.product_name;
-                    let isRefunded = i.discount_note && i.discount_note.includes('[REFUNDED]');
+                    let isRefunded = i.discount_note && i.discount_note.includes('[Refunded');
                     
                     let textStyle = isRefunded ? 'text-decoration: line-through; color: #ef4444; opacity: 0.8;' : 'color: #0f172a;';
-                    let badge = isRefunded ? `<div style="color:#dc2626; font-size:0.75rem; font-weight:bold; margin-top:2px;">[REFUNDED]</div>` : '';
+                    let badge = isRefunded ? `<div style="color:#dc2626; font-size:0.75rem; font-weight:bold; margin-top:2px;">${i.discount_note.match(/\[Refunded.*?\]/)[0]}</div>` : '';
 
                     html += `<div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
                                 <div style="flex:1; padding-right:15px;">
@@ -543,55 +520,111 @@ try {
                 }
                 html += `</div>`; 
                 
+                // Desktop: 420px fixed width. Mobile: Naturally shrinks.
                 Swal.fire({
-                    title: false, html: html, width: '95%',
-                    customClass: { popup: 'mobile-swal' },
+                    title: false, html: html, width: 420,
                     showConfirmButton: true, confirmButtonText: 'Close', confirmButtonColor: '#475569',
                     showDenyButton: true, denyButtonText: '🖨️ Print', denyButtonColor: '#0f172a',
                     showCancelButton: o.status === 'paid', cancelButtonText: '↩️ Refund', cancelButtonColor: '#dc2626',
                 }).then((result) => {
                     if (result.isDenied) { reprintOrder(orderId); } 
-                    else if (result.dismiss === Swal.DismissReason.cancel) { openRefundModal(orderId, data.items); }
+                    else if (result.dismiss === Swal.DismissReason.cancel) { openRefundModal(orderId, data.items, o.grand_total); }
                 });
                 
             } catch(e) { Swal.fire('Error', 'Could not load receipt.', 'error'); }
         }
 
+
+        // --- 2 & 3. PARTIAL QUANTITY REFUNDS + WHOLE BILL BUTTON ---
+        window.adjRefQty = function(btn, delta, max) {
+            let input = btn.parentElement.querySelector('.ref-qty');
+            let val = parseInt(input.value) + delta;
+            if (val < 0) val = 0;
+            if (val > max) val = max;
+            input.value = val;
+            updateRefundTotal();
+        };
+
         window.updateRefundTotal = function() {
             let sum = 0;
-            document.querySelectorAll('.ref-cb:checked').forEach(cb => {
-                sum += parseFloat(cb.dataset.amount) || 0;
+            document.querySelectorAll('.ref-qty').forEach(input => {
+                let q = parseInt(input.value) || 0;
+                let u = parseFloat(input.dataset.unitprice) || 0;
+                sum += (q * u);
             });
             document.getElementById('ref-total-preview').innerText = '₱' + sum.toFixed(2);
         };
 
-        window.openRefundModal = async function(orderId, items) {
+        window.refundOrder = async function(orderId, amount) {
+            Swal.close();
+            const { value: formValues } = await Swal.fire({
+                title: `⚠️ Refund Entire Bill`,
+                html: `
+                    <div style="margin-bottom:15px; font-size:0.9rem; color:gray;">Refunding will return <b>₱${parseFloat(amount).toFixed(2)}</b> and update the Z-Report.</div>
+                    <input type="text" id="ref-reason" class="swal2-input" placeholder="Reason (e.g., Cold Food, Mistake)">
+                    <input type="password" id="ref-pin" class="swal2-input" placeholder="Manager PIN Required">
+                `,
+                icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize Full Refund', confirmButtonColor: '#dc2626',
+                preConfirm: () => {
+                    const reason = document.getElementById('ref-reason').value;
+                    const pin = document.getElementById('ref-pin').value;
+                    if (!reason || !pin) { Swal.showValidationMessage('Both Reason and Manager PIN are required!'); return false; }
+                    return { reason, pin };
+                }
+            });
+
+            if (formValues) {
+                const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                try {
+                    const res = await fetch('../api/refund_order.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+                        body: JSON.stringify({ order_id: orderId, pin: formValues.pin, reason: formValues.reason })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        Swal.fire({icon: 'success', title: 'Refund Processed', timer: 2000, showConfirmButton: false})
+                        .then(() => fetchLiveUpdates());
+                    } else {
+                        Swal.fire('Declined', data.error, 'error');
+                    }
+                } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
+            }
+        };
+
+        window.openRefundModal = async function(orderId, items, grandTotal) {
             let hasRefundable = false;
             let rowsHtml = '';
             
             items.forEach(i => {
-                let isAlreadyRefunded = i.discount_note && i.discount_note.includes('[REFUNDED]');
-                if (parseFloat(i.line_total) > 0 && !isAlreadyRefunded) {
+                if (parseFloat(i.line_total) > 0) {
                     hasRefundable = true;
+                    let maxQty = parseInt(i.quantity);
+                    let unitPrice = parseFloat(i.line_total) / maxQty;
                     let name = i.variation_name ? `${i.product_name} (${i.variation_name})` : i.product_name;
+                    
                     rowsHtml += `
-                        <label class="refund-row">
-                            <div style="display: flex; align-items: center; gap: 12px; flex:1;">
-                                <input type="checkbox" class="ref-cb" value="${i.id}" data-amount="${i.line_total}" onchange="updateRefundTotal()"> 
-                                <div style="text-align:left;">
-                                    <div style="font-weight: 700; color: #1e293b; line-height:1.2;">${i.quantity}x ${name}</div>
-                                    ${i.modifiers.length > 0 ? `<div style="font-size:0.75rem; color:#64748b;">Includes addons</div>` : ''}
-                                </div>
+                        <div class="refund-row" style="display:flex; justify-content:space-between; padding:15px; border-bottom:1px solid #f1f5f9; align-items:center;">
+                            <div style="flex:1; text-align:left; padding-right:10px;">
+                                <div style="font-weight: 700; color: #1e293b; line-height:1.2;">${name}</div>
+                                <div style="color: #dc2626; font-weight:bold; font-size:0.85rem;">₱${unitPrice.toFixed(2)} each</div>
                             </div>
-                            <span style="font-weight: 900; color: #dc2626; font-size:1.1rem;">₱${parseFloat(i.line_total).toFixed(2)}</span>
-                        </label>`;
+                            <div style="display:flex; align-items:center; gap:5px; background:#f1f5f9; padding:5px; border-radius:8px; border:1px solid #e2e8f0;">
+                                <button type="button" onclick="adjRefQty(this, -1, ${maxQty})" style="width:30px; height:30px; border-radius:4px; border:1px solid #cbd5e1; background:white; font-weight:bold; cursor:pointer; color:var(--text-main);">−</button>
+                                <input type="number" class="ref-qty" data-id="${i.id}" data-unitprice="${unitPrice}" value="0" min="0" max="${maxQty}" readonly style="width:30px; text-align:center; font-weight:bold; border:none; background:transparent; font-size:1.1rem; color:var(--brand-dark);">
+                                <button type="button" onclick="adjRefQty(this, 1, ${maxQty})" style="width:30px; height:30px; border-radius:4px; border:1px solid #cbd5e1; background:white; font-weight:bold; cursor:pointer; color:var(--text-main);">+</button>
+                            </div>
+                        </div>`;
                 }
             });
 
             if (!hasRefundable) return Swal.fire('Notice', 'There are no items left to refund on this receipt.', 'info');
 
             let checklistHtml = `
-                <div style="background: white; border: 1px solid #cbd5e1; border-radius: 12px; overflow-y: auto; max-height: 40vh; margin-bottom: 15px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+                <button type="button" onclick="refundOrder(${orderId}, ${grandTotal})" style="width:100%; background:#dc2626; color:white; padding:12px; border-radius:8px; border:none; font-weight:bold; font-size:1rem; margin-bottom:15px; cursor:pointer;">⚠️ Refund Entire Bill</button>
+                
+                <div style="font-size:0.85rem; font-weight:bold; color:gray; margin-bottom:5px; text-align:left; text-transform:uppercase;">Or Refund Specific Quantities:</div>
+                <div style="background: white; border: 1px solid #cbd5e1; border-radius: 12px; overflow-y: auto; max-height: 35vh; margin-bottom: 15px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
                     ${rowsHtml}
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; background:#fef2f2; padding:15px; border-radius:12px; border:1px solid #fecaca; margin-bottom:20px;">
@@ -601,7 +634,7 @@ try {
             `;
 
             const { value: formValues } = await Swal.fire({
-                title: '<div style="font-weight:900; color:#dc2626; font-size:1.2rem;">Refund Items</div>',
+                title: '<div style="font-weight:900; color:#1e293b; font-size:1.2rem;">Issue Refund</div>',
                 html: `
                     ${checklistHtml}
                     <div style="text-align:left; margin-bottom:15px;">
@@ -613,13 +646,18 @@ try {
                         <input type="password" id="ri-pin" class="swal2-input" placeholder="****" inputmode="numeric" style="margin-top:5px; text-align:center; font-size:1.5rem; letter-spacing:5px;">
                     </div>
                 `,
-                showCancelButton: true, confirmButtonText: 'Authorize', confirmButtonColor: '#dc2626', width: '95%',
+                showCancelButton: true, confirmButtonText: 'Authorize Partial Refund', confirmButtonColor: '#6B4226', width: 420,
                 preConfirm: () => {
                     let selected = [];
-                    document.querySelectorAll('.ref-cb:checked').forEach(cb => {
-                        selected.push({ id: cb.value, amount: cb.dataset.amount });
+                    document.querySelectorAll('.ref-qty').forEach(input => {
+                        let q = parseInt(input.value) || 0;
+                        if (q > 0) {
+                            let u = parseFloat(input.dataset.unitprice);
+                            selected.push({ id: input.dataset.id, qty: q, amount: q * u });
+                        }
                     });
-                    if (selected.length === 0) { Swal.showValidationMessage('Select at least one item to refund.'); return false; }
+                    
+                    if (selected.length === 0) { Swal.showValidationMessage('Increase an item quantity to refund, or use "Refund Entire Bill".'); return false; }
                     
                     const reason = document.getElementById('ri-reason').value;
                     const pin = document.getElementById('ri-pin').value;

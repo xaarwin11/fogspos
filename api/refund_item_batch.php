@@ -10,7 +10,7 @@ if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error'
 
 $input = json_decode(file_get_contents('php://input'), true);
 $order_id = (int)$input['order_id'];
-$items_to_refund = $input['items'] ?? []; // Array of {id, amount}
+$items_to_refund = $input['items'] ?? []; 
 $reason = $input['reason'] ?? 'No reason provided';
 $pin = $input['pin'] ?? '';
 
@@ -38,22 +38,25 @@ try {
 
     $total_refund_amount = 0;
     
-    // 2. Loop through and Void the selected items
-    $u_item = $mysqli->prepare("UPDATE order_items SET line_total = 0, discount_note = CONCAT(COALESCE(discount_note, ''), ' [REFUNDED]') WHERE id = ?");
+    // 2. Loop through and partially void the selected quantities
+    $u_item = $mysqli->prepare("UPDATE order_items SET quantity = quantity - ?, line_total = line_total - ?, discount_note = CONCAT(COALESCE(discount_note, ''), ?) WHERE id = ?");
     
     foreach ($items_to_refund as $item) {
         $order_item_id = (int)$item['id'];
+        $qty_refunded = (int)$item['qty'];
         $amount = (float)$item['amount'];
         $total_refund_amount += $amount;
         
-        $u_item->bind_param('i', $order_item_id);
+        $note_append = " [Refunded {$qty_refunded}x]";
+        
+        $u_item->bind_param('idsi', $qty_refunded, $amount, $note_append, $order_item_id);
         $u_item->execute();
     }
     $u_item->close();
 
-    // 3. Deduct from the Grand Total
-    $u_order = $mysqli->prepare("UPDATE orders SET grand_total = grand_total - ? WHERE id = ?");
-    $u_order->bind_param('di', $total_refund_amount, $order_id);
+    // 3. Deduct from the Grand Total & Subtotal
+    $u_order = $mysqli->prepare("UPDATE orders SET grand_total = grand_total - ?, subtotal = subtotal - ? WHERE id = ?");
+    $u_order->bind_param('ddi', $total_refund_amount, $total_refund_amount, $order_id);
     $u_order->execute();
     $u_order->close();
 
