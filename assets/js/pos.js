@@ -374,23 +374,17 @@ window.renderCart = function() {
 };
 
 window.updateQty = function(idx, delta) {
-    const newQty = state.cart[idx].qty + delta;
-    
-    // FIX 3: Prompt for deletion if quantity hits zero
+    const item = state.cart[idx];
+    const newQty = item.qty + delta;
+
+    // KITCHEN CHECK: If they try to reduce an item that is already cooking...
+    if (delta < 0 && item.kitchen_printed && parseInt(item.kitchen_printed) > 0) {
+        return confirmRemoveItem(idx); // Open the Smart Void Modal instead!
+    }
+
+    // Normal behavior for unsaved items or increasing quantity (+)
     if (newQty <= 0) {
-        Swal.fire({
-            title: 'Remove Item?', 
-            text: state.cart[idx].name, 
-            icon: 'warning',
-            showCancelButton: true, 
-            confirmButtonColor: '#d33', 
-            confirmButtonText: 'Yes, remove it'
-        }).then((res) => { 
-            if (res.isConfirmed) { 
-                state.cart.splice(idx, 1); 
-                renderCart(); 
-            } 
-        });
+        confirmRemoveItem(idx);
     } else {
         state.cart[idx].qty = newQty;
         renderCart();
@@ -400,8 +394,8 @@ window.updateQty = function(idx, delta) {
 window.confirmRemoveItem = async function(idx) {
     const item = state.cart[idx];
 
-    // If it's a brand new, unsaved order, just delete it normally (no PIN required)
-    if (!state.activeOrderId || state.activeOrderId === 'new') {
+    // If it's a new unsaved order OR an unprinted item, just delete it instantly!
+    if (!state.activeOrderId || state.activeOrderId === 'new' || !item.kitchen_printed || parseInt(item.kitchen_printed) === 0) {
         Swal.fire({
             title: 'Remove Item?', text: item.name, icon: 'warning',
             showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes'
@@ -409,44 +403,52 @@ window.confirmRemoveItem = async function(idx) {
         return;
     }
 
-    // 🚨 SCENARIO A: The order was already saved to the database/kitchen! Require PIN.
+    // 🚨 ITEM IS COOKING! Pop the Smart Void Modal.
     const { value: formValues } = await Swal.fire({
         title: `Void ${item.name}?`,
         html: `
             <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
-                This item is already active in the kitchen. Authorize void to remove it.
+                This item is active in the kitchen. Authorize to remove.
             </div>
-            <input type="text" id="void-reason" class="swal2-input" placeholder="Reason (e.g., Customer changed mind)">
-            <input type="password" id="void-pin" class="swal2-input" placeholder="Manager PIN Required" inputmode="numeric">
+            <div style="text-align:left; margin-bottom:10px;">
+                <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Quantity to Void (Max: ${item.qty})</label>
+                <input type="number" id="void-qty" class="swal2-input" min="1" max="${item.qty}" value="${item.qty}" style="margin-top:5px; text-align:center; font-weight:bold; font-size:1.5rem; color:var(--brand);">
+            </div>
+            <input type="text" id="void-reason" class="swal2-input" placeholder="Reason (e.g., Customer changed mind)" style="margin-top:0;">
+            <input type="password" id="void-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
         `,
         icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize Void', confirmButtonColor: '#d33',
         preConfirm: () => {
+            const vQty = parseInt(document.getElementById('void-qty').value);
             const reason = document.getElementById('void-reason').value;
             const pin = document.getElementById('void-pin').value;
-            if (!reason || !pin) { Swal.showValidationMessage('Both Reason and Manager PIN are required!'); return false; }
-            return { reason, pin };
+            
+            if (isNaN(vQty) || vQty < 1 || vQty > item.qty) { Swal.showValidationMessage('Invalid quantity!'); return false; }
+            if (!reason || !pin) { Swal.showValidationMessage('Both Reason and PIN are required!'); return false; }
+            return { vQty, reason, pin };
         }
     });
 
     if (formValues) {
         Swal.fire({title:'Authorizing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-        
-        // Verify PIN via your existing auth logic
         const authRes = await fetch('../api/auth_login.php', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ passcode: formValues.pin }) 
+            body: JSON.stringify({ passcode: formValues.pin })
         });
         const authData = await authRes.json();
         
         if (authData.success && (authData.user.role === 'admin' || authData.user.role === 'manager')) {
-            // Remove from cart and immediately save the database!
-            state.cart.splice(idx, 1);
-            await window.saveOrder(true);
+            // Apply the math to the cart!
+            if (formValues.vQty === item.qty) {
+                state.cart.splice(idx, 1); // Full Delete
+            } else {
+                state.cart[idx].qty -= formValues.vQty; // Partial Void!
+            }
             
-            // Optional: Trigger a "Void Ticket" to print in the kitchen!
-            // fetch(`../api/print_order.php?order_id=${state.activeOrderId}&type=void_item&item_name=${encodeURIComponent(item.name)}`);
-            
-            Swal.fire('Voided!', 'Item removed successfully.', 'success');
+            // Send to database with the custom reason
+            await window.saveOrder(true, formValues.reason);
+            Swal.fire('Voided!', `${formValues.vQty}x ${item.name} removed successfully.`, 'success');
+            renderCart();
         } else {
             Swal.fire('Declined', 'Invalid PIN or you do not have Manager privileges.', 'error');
         }
@@ -567,32 +569,58 @@ window.promptItemDiscount = async function(idx) {
     }
 };
 
-window.clearCart = function() {
+window.clearCart = async function() {
     if (state.cart.length === 0 && !state.activeOrderId) return Swal.fire('Empty', 'Your cart is already empty.', 'info');
 
-    Swal.fire({ title: 'Clear & Void Order?', text: 'This will free up the table.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then(async (res) => {
-        if (res.isConfirmed) {
-            if (state.activeOrderId && state.activeOrderId !== 'new') {
-                try { 
-                    await fetch('../api/clear_order.php', { 
-                        method: 'POST', 
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': getCsrfToken() // CSRF APPLIED
-                        }, 
-                        body: JSON.stringify({order_id: state.activeOrderId}) 
-                    }); 
-                } catch (e) {}
+    if (state.activeOrderId && state.activeOrderId !== 'new') {
+        // SECURITY: Order is saved! Force PIN and Reason to kill the table.
+        const { value: formValues } = await Swal.fire({
+            title: 'Void Entire Order?',
+            html: `
+                <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
+                    This table is active. To void the whole ticket, please authorize.
+                </div>
+                <input type="text" id="clear-reason" class="swal2-input" placeholder="Reason (e.g. Walk-out)">
+                <input type="password" id="clear-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+            `,
+            icon: 'warning', showCancelButton: true, confirmButtonText: 'Void Table', confirmButtonColor: '#d33',
+            preConfirm: () => {
+                const reason = document.getElementById('clear-reason').value;
+                const pin = document.getElementById('clear-pin').value;
+                if (!reason || !pin) { Swal.showValidationMessage('Reason and Manager PIN are required!'); return false; }
+                return { reason, pin };
             }
-            state.cart = []; state.discount_id = null; state.discount_amount = 0; state.discount_note = ''; state.senior_details = []; state.amount_paid = 0; 
-            state.customer_name = null;
-            state.custom_discount = { is_active: false, type: 'percent', val: 0, target: 'all', note: '' };
-            state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
-            document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
-            renderCart();
-            if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup(); 
+        });
+
+        if (formValues) {
+            Swal.fire({title:'Voiding...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            try {
+                const res = await fetch('../api/clear_order.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                    body: JSON.stringify({order_id: state.activeOrderId, reason: formValues.reason, pin: formValues.pin})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    Swal.fire('Voided!', 'Table has been cleared.', 'success');
+                    state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+                    document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+                    renderCart();
+                    if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+                } else { Swal.fire('Error', data.error, 'error'); }
+            } catch (e) { Swal.fire('Error', 'Connection failed', 'error'); }
         }
-    });
+    } else {
+        // Unsaved order: Allow normal clearing
+        Swal.fire({ title: 'Clear Cart?', text: 'Remove all unsaved items?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then((res) => {
+            if (res.isConfirmed) {
+                state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+                document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+                renderCart();
+                if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+            }
+        });
+    }
 };
 
 window.applyDiscountPopup = async function() {
@@ -857,7 +885,7 @@ function syncOrderState(d) {
 }
 
 let isSaving = false;
-window.saveOrder = async function(silent = false) {
+window.saveOrder = async function(silent = false, voidReason = null) { // ADDED voidReason PARAMETER
     if (isSaving) return;
     if (state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
     isSaving = true;
@@ -871,7 +899,8 @@ window.saveOrder = async function(silent = false) {
         body: JSON.stringify({
             items: state.cart, table_id: state.activeTableId, order_id: state.activeOrderId === 'new' ? null : state.activeOrderId,
             order_type: state.mode, discount_id: state.discount_id, discount_note: state.discount_note, senior_details: state.senior_details,
-            custom_discount: state.custom_discount, customer_name: state.customer_name
+            custom_discount: state.custom_discount, customer_name: state.customer_name,
+            void_reason: voidReason // ADDED: Sent securely to PHP
         })
     });
     

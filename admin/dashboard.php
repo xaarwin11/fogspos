@@ -476,6 +476,15 @@ try {
                 if (o.cashier) html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Cashier:</span> <span>${o.cashier}</span></div>`;
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : (o.status === 'refunded' ? '#dc2626' : '#d97706'))}">${o.status.toUpperCase()}</span></div>`;
 
+                // FIX 1: RESTORE THE REASON AT THE TOP OF THE RECEIPT FROM THE NEW RELATIONAL LOGS
+                if (o.status === 'voided' && data.void_logs && data.void_logs.length > 0) {
+                    let mainReason = data.void_logs[data.void_logs.length - 1].reason; // Get the most recent reason
+                    html += `<div style="margin-top: 5px; padding: 5px; background: #ffebee; border-left: 3px solid #c62828; margin-bottom:15px;"><strong>Void Reason:</strong> <span style="color:#c62828; font-weight:bold;">${mainReason}</span></div>`;
+                } else if (o.status === 'refunded' && data.refund_logs && data.refund_logs.length > 0) {
+                    let mainReason = data.refund_logs[data.refund_logs.length - 1].reason;
+                    html += `<div style="margin-top: 5px; padding: 5px; background: #fef2f2; border-left: 3px solid #dc2626; margin-bottom:15px;"><strong>Refund Reason:</strong> <span style="color:#dc2626; font-weight:bold;">${mainReason}</span></div>`;
+                }
+
                 html += `<div style="border-top:1px dashed #94a3b8; margin:15px 0;"></div>`;
                 
                 data.items.forEach(i => {
@@ -487,7 +496,6 @@ try {
                     let isPartiallyRefunded = refQty > 0 && refQty < qty;
                     let isOrderVoided = (o.status === 'voided'); 
                     
-                    // Strike through if Refunded OR Voided
                     let textStyle = (isFullyRefunded || isOrderVoided) ? 'text-decoration: line-through; color: #ef4444; opacity: 0.8;' : 'color: #0f172a;';
                     
                     let badge = '';
@@ -533,7 +541,6 @@ try {
                     });
                 }
 
-                // DYNAMIC RELATIONAL REFUND HISTORY BLOCK
                 if (data.refund_logs && data.refund_logs.length > 0) {
                     html += `<div style="border-top:2px solid #dc2626; margin:15px 0 10px 0;"></div>`;
                     html += `<div style="margin-bottom:8px; font-weight:900; color:#dc2626; text-transform:uppercase; font-size:0.8rem;">Refund History</div>`;
@@ -551,10 +558,10 @@ try {
                     });
                 }
 
-                // DYNAMIC RELATIONAL VOID HISTORY BLOCK (Kitchen Waste)
-                if (data.void_logs && data.void_logs.length > 0) {
+                // FIX 2: PREVENT DOUBLE LISTING BY HIDING KITCHEN VOIDS IF WHOLE ORDER IS CANCELLED
+                if (o.status !== 'voided' && data.void_logs && data.void_logs.length > 0) {
                     html += `<div style="border-top:2px solid #f59e0b; margin:15px 0 10px 0;"></div>`;
-                    html += `<div style="margin-bottom:8px; font-weight:900; color:#b45309; text-transform:uppercase; font-size:0.8rem;">Voids</div>`;
+                    html += `<div style="margin-bottom:8px; font-weight:900; color:#b45309; text-transform:uppercase; font-size:0.8rem;">Kitchen Voids (Waste)</div>`;
                     
                     data.void_logs.forEach(log => {
                         html += `

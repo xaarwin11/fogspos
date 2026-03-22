@@ -26,6 +26,7 @@ $discount_note = $input['discount_note'] ?? null;
 $senior_details = $input['senior_details'] ?? []; 
 $custom_discount = $input['custom_discount'] ?? null;
 $customer_name = !empty($input['customer_name']) ? $input['customer_name'] : null;
+$void_reason_input = !empty($input['void_reason']) ? $input['void_reason'] : "Removed from active cart / Kitchen Cancel";
 
 try {
     $mysqli = get_db_conn();
@@ -66,7 +67,6 @@ try {
     }
 
     $existing_map = [];
-    // FIX #1: Added line_total to this SELECT query!
     $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, line_total, item_notes FROM order_items WHERE order_id = ?");
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
@@ -96,9 +96,6 @@ try {
     $del_item = $mysqli->prepare("DELETE FROM order_items WHERE id = ?");
     $ins_mod  = $mysqli->prepare("INSERT INTO order_item_modifiers (order_item_id, modifier_id, name, price) VALUES (?, ?, ?, ?)");
     
-    // ====================================================================
-    // PERFORMANCE UPGRADE: Bulk fetch products, variations, and modifiers!
-    // ====================================================================
     $p_ids = []; $v_ids = []; $m_ids_all = [];
     foreach ($items as $item) {
         if ($item['id'] !== 'custom_item') $p_ids[] = (int)$item['id'];
@@ -126,7 +123,8 @@ try {
     }
 
     $processed_ids = [];
-
+    $partial_voids = []; // Array to catch items where the quantity was reduced
+    
     foreach ($items as $item) {
         $is_custom = ($item['id'] === 'custom_item');
         $p_id = $is_custom ? null : (int)$item['id']; 
@@ -139,7 +137,6 @@ try {
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
 
-        // Fetch prices from Memory Maps instead of hitting the database!
         $base_p = 0; $p_name = ''; $v_name = null;
         
         if ($is_custom) {
@@ -175,6 +172,23 @@ try {
 
         if (isset($existing_map[$key])) {
             $existing_id = $existing_map[$key]['id'];
+            $old_qty = (int)$existing_map[$key]['quantity'];
+            $old_line_total = (float)$existing_map[$key]['line_total'];
+
+            // 🌟 SMART VOID MATH: Detect if the quantity went down
+            if ($qty < $old_qty) {
+                $qty_diff = $old_qty - $qty;
+                $unit_price = $old_qty > 0 ? ($old_line_total / $old_qty) : 0;
+                $void_amount = $unit_price * $qty_diff;
+
+                $partial_voids[] = [
+                    'id' => $existing_id,
+                    'product_name' => $p_name,
+                    'quantity' => $qty_diff,
+                    'amount' => $void_amount
+                ];
+            }
+
             $upd_item->bind_param('iddssi', $qty, $line_total, $item_disc_amt, $item_disc_note, $item_note, $existing_id);
             $upd_item->execute();
             $processed_ids[] = $existing_id;
@@ -190,43 +204,57 @@ try {
     }
 
     // ====================================================================
-    // KITCHEN WASTE TRACKING: Relational Void Logging
+    // KITCHEN WASTE TRACKING: Relational Void Logging (Full & Partial)
     // ====================================================================
     $items_to_void = [];
+    
+    // 1. Gather Full Item Deletions (Items completely removed from cart)
     foreach ($existing_map as $key => $e_item) {
         if (!in_array($e_item['id'], $processed_ids)) {
-            $items_to_void[] = $e_item;
+            $items_to_void[] = [
+                'id' => $e_item['id'],
+                'product_name' => $e_item['product_name'],
+                'quantity' => isset($e_item['quantity']) ? (int)$e_item['quantity'] : 1,
+                'amount' => isset($e_item['line_total']) ? (float)$e_item['line_total'] : 0.00,
+                'full_delete' => true
+            ];
         }
     }
 
+    // 2. Gather Partial Voids (Items with reduced quantities)
+    foreach ($partial_voids as $pv) {
+        $items_to_void[] = [
+            'id' => $pv['id'],
+            'product_name' => $pv['product_name'],
+            'quantity' => $pv['quantity'],
+            'amount' => $pv['amount'],
+            'full_delete' => false // Ensure row stays alive in DB
+        ];
+    }
+
     if (!empty($items_to_void)) {
-        // 1. Create the Master Void Entry
-        $v_reason = "Removed from active cart/Kitchen Cancel";
+        // Create the Master Void Entry with the custom reason
         $v_stmt = $mysqli->prepare("INSERT INTO voids (order_id, manager_id, reason) VALUES (?, ?, ?)");
-        $v_stmt->bind_param('iis', $order_id, $_SESSION['user_id'], $v_reason);
+        $v_stmt->bind_param('iis', $order_id, $_SESSION['user_id'], $void_reason_input);
         $v_stmt->execute();
         $void_id = $mysqli->insert_id;
         $v_stmt->close();
 
-        // 2. Prepare statements for items and modifiers deletion
         $vi_stmt = $mysqli->prepare("INSERT INTO void_items (void_id, product_name, quantity, amount) VALUES (?, ?, ?, ?)");
         $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
 
         foreach ($items_to_void as $item) {
-            // FIX #2: Explicitly cast to prevent NULL errors
-            $void_qty = isset($item['quantity']) ? (int)$item['quantity'] : 1;
-            $void_amt = isset($item['line_total']) ? (float)$item['line_total'] : 0.00;
-
-            // 3. Log into void_items
-            $vi_stmt->bind_param('isid', $void_id, $item['product_name'], $void_qty, $void_amt);
+            $vi_stmt->bind_param('isid', $void_id, $item['product_name'], $item['quantity'], $item['amount']);
             $vi_stmt->execute();
 
-            // 4. Cleanly delete from active cart
-            $del_mods->bind_param('i', $item['id']);
-            $del_mods->execute();
-            
-            $del_item->bind_param('i', $item['id']);
-            $del_item->execute();
+            // ONLY physically delete the item from the order if it was a FULL delete
+            if ($item['full_delete']) {
+                $del_mods->bind_param('i', $item['id']);
+                $del_mods->execute();
+                
+                $del_item->bind_param('i', $item['id']);
+                $del_item->execute();
+            }
         }
         $vi_stmt->close();
         $del_mods->close();
