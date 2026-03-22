@@ -376,26 +376,37 @@ window.renderCart = function() {
 window.updateQty = function(idx, delta) {
     const item = state.cart[idx];
     const newQty = item.qty + delta;
+    
+    // THE MATH: Differentiate between printed and unprinted
+    const printed = parseInt(item.kitchen_printed) || 0;
+    const unprinted = item.qty - printed;
 
-    // KITCHEN CHECK: If they try to reduce an item that is already cooking...
-    if (delta < 0 && item.kitchen_printed && parseInt(item.kitchen_printed) > 0) {
-        return confirmRemoveItem(idx); // Open the Smart Void Modal instead!
+    if (delta < 0) {
+        // They are reducing quantity. Do they have unprinted items?
+        if (unprinted > 0) {
+            // Yes! They can safely reduce the unprinted amount without a PIN
+            if (newQty <= 0) return confirmRemoveItem(idx); // Failsafe if it hits 0
+            state.cart[idx].qty = newQty;
+            renderCart();
+            return;
+        } else {
+            // Unprinted is 0. They are trying to reduce a PRINTED item! Pop the PIN!
+            return confirmRemoveItem(idx);
+        }
     }
 
-    // Normal behavior for unsaved items or increasing quantity (+)
-    if (newQty <= 0) {
-        confirmRemoveItem(idx);
-    } else {
-        state.cart[idx].qty = newQty;
-        renderCart();
-    }
+    // Normal behavior for increasing quantity (+)
+    state.cart[idx].qty = newQty;
+    renderCart();
 };
 
 window.confirmRemoveItem = async function(idx) {
     const item = state.cart[idx];
+    const printed = parseInt(item.kitchen_printed) || 0;
+    const unprinted = item.qty - printed;
 
-    // If it's a new unsaved order OR an unprinted item, just delete it instantly!
-    if (!state.activeOrderId || state.activeOrderId === 'new' || !item.kitchen_printed || parseInt(item.kitchen_printed) === 0) {
+    // 1. If NO items were printed to the kitchen, just delete it instantly!
+    if (printed === 0) {
         Swal.fire({
             title: 'Remove Item?', text: item.name, icon: 'warning',
             showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes'
@@ -403,54 +414,85 @@ window.confirmRemoveItem = async function(idx) {
         return;
     }
 
-    // 🚨 ITEM IS COOKING! Pop the Smart Void Modal.
+    // 2. 🚨 HAS PRINTED ITEMS! Pop the Smart Void Modal.
     const { value: formValues } = await Swal.fire({
         title: `Void ${item.name}?`,
         html: `
             <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
-                This item is active in the kitchen. Authorize to remove.
+                ${printed} unit(s) active in kitchen. ${unprinted} unit(s) unprinted.
             </div>
             <div style="text-align:left; margin-bottom:10px;">
                 <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Quantity to Void (Max: ${item.qty})</label>
                 <input type="number" id="void-qty" class="swal2-input" min="1" max="${item.qty}" value="${item.qty}" style="margin-top:5px; text-align:center; font-weight:bold; font-size:1.5rem; color:var(--brand);">
             </div>
-            <input type="text" id="void-reason" class="swal2-input" placeholder="Reason (e.g., Customer changed mind)" style="margin-top:0;">
-            <input type="password" id="void-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+            <div id="auth-section">
+                <input type="text" id="void-reason" class="swal2-input" placeholder="Reason (e.g., Customer changed mind)" style="margin-top:0;">
+                <input type="password" id="void-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+            </div>
         `,
-        icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize Void', confirmButtonColor: '#d33',
+        icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize / Remove', confirmButtonColor: '#d33',
+        didOpen: () => {
+            // MAGIC UI: Dynamically hide the PIN box if they only delete unprinted items!
+            const qtyInput = document.getElementById('void-qty');
+            const authSec = document.getElementById('auth-section');
+            const checkAuth = () => { authSec.style.display = (parseInt(qtyInput.value) > unprinted) ? 'block' : 'none'; };
+            qtyInput.addEventListener('input', checkAuth);
+            checkAuth();
+        },
         preConfirm: () => {
             const vQty = parseInt(document.getElementById('void-qty').value);
             const reason = document.getElementById('void-reason').value;
             const pin = document.getElementById('void-pin').value;
             
             if (isNaN(vQty) || vQty < 1 || vQty > item.qty) { Swal.showValidationMessage('Invalid quantity!'); return false; }
-            if (!reason || !pin) { Swal.showValidationMessage('Both Reason and PIN are required!'); return false; }
-            return { vQty, reason, pin };
+            
+            const needsAuth = vQty > unprinted;
+            if (needsAuth && (!reason || !pin)) { Swal.showValidationMessage('Reason and PIN are required for printed items!'); return false; }
+            
+            return { vQty, reason, pin, needsAuth };
         }
     });
 
     if (formValues) {
-        Swal.fire({title:'Authorizing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-        const authRes = await fetch('../api/auth_login.php', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ passcode: formValues.pin })
-        });
-        const authData = await authRes.json();
-        
-        if (authData.success && (authData.user.role === 'admin' || authData.user.role === 'manager')) {
-            // Apply the math to the cart!
-            if (formValues.vQty === item.qty) {
-                state.cart.splice(idx, 1); // Full Delete
-            } else {
-                state.cart[idx].qty -= formValues.vQty; // Partial Void!
-            }
+        const executeRemoval = async () => {
+            let voidedName = item.name;
+            let currentOrderId = state.activeOrderId;
+
+            if (formValues.vQty === item.qty) state.cart.splice(idx, 1);
+            else state.cart[idx].qty -= formValues.vQty;
             
-            // Send to database with the custom reason
-            await window.saveOrder(true, formValues.reason);
-            Swal.fire('Voided!', `${formValues.vQty}x ${item.name} removed successfully.`, 'success');
+            if (state.cart.length === 0 && currentOrderId && currentOrderId !== 'new') {
+                await fetch('../api/clear_order.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                    body: JSON.stringify({order_id: currentOrderId, reason: formValues.reason || 'Cart Cleared', pin: formValues.pin || ''})
+                });
+                state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+                document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+            } else if (currentOrderId && currentOrderId !== 'new') {
+                await window.saveOrder(true, formValues.reason);
+            }
+
+            // Only alert the kitchen printer if PRINTED items were killed
+            if (formValues.needsAuth) {
+                const printedVoided = formValues.vQty - unprinted; 
+                fetch(`../api/print_order.php?order_id=${currentOrderId}&type=void_item&item_name=${encodeURIComponent(voidedName)}&qty=${printedVoided}&reason=${encodeURIComponent(formValues.reason)}`).catch(e => console.error(e));
+            }
+
+            Swal.fire('Voided!', `${formValues.vQty}x ${voidedName} removed successfully.`, 'success');
             renderCart();
+            if (state.cart.length === 0 && typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+        };
+
+        if (formValues.needsAuth) {
+            Swal.fire({title:'Authorizing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            const authRes = await fetch('../api/auth_login.php', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: formValues.pin })
+            });
+            const authData = await authRes.json();
+            if (authData.success && (authData.user.role === 'admin' || authData.user.role === 'manager')) { await executeRemoval(); } 
+            else { Swal.fire('Declined', 'Invalid PIN or you do not have Manager privileges.', 'error'); }
         } else {
-            Swal.fire('Declined', 'Invalid PIN or you do not have Manager privileges.', 'error');
+            await executeRemoval(); // No auth needed, just do it!
         }
     }
 };

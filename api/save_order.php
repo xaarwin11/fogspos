@@ -67,7 +67,7 @@ try {
     }
 
     $existing_map = [];
-    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, line_total, item_notes FROM order_items WHERE order_id = ?");
+    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, line_total, item_notes, kitchen_printed FROM order_items WHERE order_id = ?");
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
     $e_res = $e_stmt->get_result();
@@ -123,7 +123,7 @@ try {
     }
 
     $processed_ids = [];
-    $partial_voids = []; // Array to catch items where the quantity was reduced
+    $partial_voids = []; 
     
     foreach ($items as $item) {
         $is_custom = ($item['id'] === 'custom_item');
@@ -174,19 +174,26 @@ try {
             $existing_id = $existing_map[$key]['id'];
             $old_qty = (int)$existing_map[$key]['quantity'];
             $old_line_total = (float)$existing_map[$key]['line_total'];
+            $old_printed = (int)$existing_map[$key]['kitchen_printed'];
 
             // 🌟 SMART VOID MATH: Detect if the quantity went down
             if ($qty < $old_qty) {
                 $qty_diff = $old_qty - $qty;
-                $unit_price = $old_qty > 0 ? ($old_line_total / $old_qty) : 0;
-                $void_amount = $unit_price * $qty_diff;
+                
+                // 🌟 CAP THE WASTE: Only count it if it eats into the printed amount!
+                $wasted_qty = max(0, $qty_diff - ($old_qty - $old_printed));
 
-                $partial_voids[] = [
-                    'id' => $existing_id,
-                    'product_name' => $p_name,
-                    'quantity' => $qty_diff,
-                    'amount' => $void_amount
-                ];
+                if ($wasted_qty > 0) {
+                    $unit_price = $old_qty > 0 ? ($old_line_total / $old_qty) : 0;
+                    $void_amount = $unit_price * $wasted_qty;
+
+                    $partial_voids[] = [
+                        'id' => $existing_id,
+                        'product_name' => $p_name,
+                        'quantity' => $wasted_qty,
+                        'amount' => $void_amount
+                    ];
+                }
             }
 
             $upd_item->bind_param('iddssi', $qty, $line_total, $item_disc_amt, $item_disc_note, $item_note, $existing_id);
@@ -204,36 +211,41 @@ try {
     }
 
     // ====================================================================
-    // KITCHEN WASTE TRACKING: Relational Void Logging (Full & Partial)
+    // KITCHEN WASTE TRACKING: Waste-Aware Deletions
     // ====================================================================
     $items_to_void = [];
+    $items_to_silently_delete = [];
     
-    // 1. Gather Full Item Deletions (Items completely removed from cart)
     foreach ($existing_map as $key => $e_item) {
         if (!in_array($e_item['id'], $processed_ids)) {
-            $items_to_void[] = [
-                'id' => $e_item['id'],
-                'product_name' => $e_item['product_name'],
-                'quantity' => isset($e_item['quantity']) ? (int)$e_item['quantity'] : 1,
-                'amount' => isset($e_item['line_total']) ? (float)$e_item['line_total'] : 0.00,
-                'full_delete' => true
-            ];
+            $old_qty = (int)$e_item['quantity'];
+            $old_printed = (int)$e_item['kitchen_printed'];
+            
+            if ($old_printed > 0) {
+                // It was printed! Log EXACTLY what the kitchen knew about to the waste tracker.
+                $unit_price = $old_qty > 0 ? ((float)$e_item['line_total'] / $old_qty) : 0;
+                $items_to_void[] = [
+                    'id' => $e_item['id'],
+                    'product_name' => $e_item['product_name'],
+                    'quantity' => $old_printed, // ONLY log the printed amount!
+                    'amount' => $unit_price * $old_printed,
+                    'full_delete' => true
+                ];
+            } else {
+                // NEVER PRINTED! Vaporize it silently.
+                $items_to_silently_delete[] = $e_item['id'];
+            }
         }
     }
 
-    // 2. Gather Partial Voids (Items with reduced quantities)
     foreach ($partial_voids as $pv) {
         $items_to_void[] = [
-            'id' => $pv['id'],
-            'product_name' => $pv['product_name'],
-            'quantity' => $pv['quantity'],
-            'amount' => $pv['amount'],
-            'full_delete' => false // Ensure row stays alive in DB
+            'id' => $pv['id'], 'product_name' => $pv['product_name'], 'quantity' => $pv['quantity'], 'amount' => $pv['amount'], 'full_delete' => false
         ];
     }
 
+    // Process logged voids
     if (!empty($items_to_void)) {
-        // Create the Master Void Entry with the custom reason
         $v_stmt = $mysqli->prepare("INSERT INTO voids (order_id, manager_id, reason) VALUES (?, ?, ?)");
         $v_stmt->bind_param('iis', $order_id, $_SESSION['user_id'], $void_reason_input);
         $v_stmt->execute();
@@ -247,7 +259,6 @@ try {
             $vi_stmt->bind_param('isid', $void_id, $item['product_name'], $item['quantity'], $item['amount']);
             $vi_stmt->execute();
 
-            // ONLY physically delete the item from the order if it was a FULL delete
             if ($item['full_delete']) {
                 $del_mods->bind_param('i', $item['id']);
                 $del_mods->execute();
@@ -257,6 +268,16 @@ try {
             }
         }
         $vi_stmt->close();
+        $del_mods->close();
+    }
+
+    // Process silent deletes (Clean database cleanup for unprinted items)
+    if (!empty($items_to_silently_delete)) {
+        $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
+        foreach ($items_to_silently_delete as $id) {
+            $del_mods->bind_param('i', $id); $del_mods->execute();
+            $del_item->bind_param('i', $id); $del_item->execute();
+        }
         $del_mods->close();
     }
 
