@@ -20,12 +20,7 @@ if (isset($_SESSION['user_id'])) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#6B4226">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Fogs POS">
-    <link rel="apple-touch-icon" href="assets/img/favicon.png">
+    <?php include 'pwa_universal.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>FogsTasa's Cafe'</title>

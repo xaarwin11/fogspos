@@ -1,7 +1,7 @@
 {
   "name": "FogsTasa's POS",
   "short_name": "Fogs POS",
-  "start_url": "/pos/index.php",
+  "start_url": "/index.php", 
   "scope": "/",
   "display": "fullscreen",
   "background_color": "#ffffff",
