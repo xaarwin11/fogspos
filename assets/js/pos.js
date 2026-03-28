@@ -32,18 +32,24 @@ window.addOpenItem = async function() {
     const { value: formValues } = await Swal.fire({
         title: '⭐ Custom Item',
         html: `
+            <style>
+                .c-item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+                @media (max-width: 500px) {
+                    .c-item-grid { grid-template-columns: 1fr; gap: 5px; }
+                }
+            </style>
             <div style="background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee; margin-bottom:15px; text-align:left;">
                 <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Item Name</label>
                 <input type="text" id="oi-name" class="search-bar" placeholder="e.g. Special Pasta Tray" style="margin-bottom:15px; border:2px solid var(--brand); font-weight:bold;">
                 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div class="c-item-grid">
                     <div>
                         <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Unit Price (₱)</label>
-                        <input type="number" id="oi-price" class="search-bar" placeholder="0.00" step="0.01" style="margin-bottom:0; font-weight:bold; color:var(--brand-dark); font-size:1.2rem;">
+                        <input type="number" id="oi-price" class="search-bar" placeholder="0.00" step="0.01" style="margin-bottom:10px; font-weight:bold; color:var(--brand-dark); font-size:1.2rem;">
                     </div>
                     <div>
                         <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Quantity</label>
-                        <input type="number" id="oi-qty" class="search-bar" value="1" min="1" style="margin-bottom:0; font-weight:bold; font-size:1.2rem; text-align:center;">
+                        <input type="number" id="oi-qty" class="search-bar" value="1" min="1" style="margin-bottom:10px; font-weight:bold; font-size:1.2rem; text-align:center;">
                     </div>
                 </div>
             </div>
@@ -708,7 +714,20 @@ window.clearCart = async function() {
 
 window.applyDiscountPopup = async function() {
     if(state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
-    let html = '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:15px;">';
+    
+    // 📱 MOBILE CSS INJECTED HERE
+    let html = `
+    <style>
+        .disc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .big-btn { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; }
+        @media (max-width: 600px) {
+            .disc-grid { grid-template-columns: 1fr; gap: 12px; }
+            .disc-grid button { padding: 20px 10px !important; }
+            .disc-grid span:first-child { font-size: 1.15rem !important; }
+            .big-btn { padding: 18px !important; font-size: 1.1rem !important; }
+        }
+    </style>
+    <div class="disc-grid">`;
     
     state.discounts.forEach(d => { 
         let label = d.name;
@@ -725,17 +744,15 @@ window.applyDiscountPopup = async function() {
         html += `
             <button class="btn secondary" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px; line-height:1.2;" onclick="selectDiscount(${d.id})">
                 <span style="font-weight:bold; font-size:1rem; color:var(--brand-dark);">${label}</span>
-                <span style="font-size:0.75rem; color:gray; margin-top:4px;">Applies to: ${targetText}</span>
+                <span style="font-size:0.8rem; color:gray; margin-top:6px;">Applies to: ${targetText}</span>
             </button>
         `; 
     });
     html += `</div>`;
 
-    // 🌟 NEW: THE ROUNDING / EXACT TOTAL BUTTON 🌟
-    html += `<button class="btn" style="width:100%; background:#f59e0b; color:white; border:none; margin-bottom:10px;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Down)</button>`;
-    
-    html += `<button class="btn" style="width:100%; background:var(--blue); margin-bottom:10px;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
-    html += `<button class="btn danger" style="width:100%;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
+    html += `<button class="big-btn" style="background:#f59e0b; color:white;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Down)</button>`;
+    html += `<button class="big-btn" style="background:var(--blue); color:white;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
+    html += `<button class="big-btn" style="background:#dc2626; color:white;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
     
     Swal.fire({ title: 'Select Discount', html: html, showConfirmButton: false, showCancelButton: true });
 };
@@ -1110,20 +1127,36 @@ window.createNewSubCheck = function() {
 window.splitBillByItem = async function(balance) {
     if (state.cart.length === 0) return;
     
-    let checklistHtml = `<div style="text-align:left; max-height:250px; overflow-y:auto; border:1px solid #eee; padding:10px; border-radius:8px;">`;
+    // 📱 MOBILE CSS INJECTED HERE
+    let checklistHtml = `
+    <style>
+        .split-item-row { display: flex; justify-content: space-between; align-items: center; padding: 15px 10px; border-bottom: 1px dashed #ddd; cursor: pointer; transition: 0.2s; }
+        .split-item-row:active { background: #f3f4f6; }
+        .big-checkbox { transform: scale(1.5); margin-right: 15px; pointer-events: none; }
+        @media (max-width: 600px) {
+            .split-item-row { padding: 20px 10px; }
+            .big-checkbox { transform: scale(1.8); margin-right: 20px; }
+        }
+    </style>
+    <div style="text-align:left; max-height:40vh; overflow-y:auto; border:1px solid #eee; border-radius:8px;">`;
+    
     state.cart.forEach((item, idx) => {
         const mCost = item.modifiers.reduce((s, m) => s + m.price, 0);
         const lineTotal = ((item.price + mCost) * item.qty) - (parseFloat(item.discount_amount) || 0);
+        
         checklistHtml += `
-            <label style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px dashed #eee; cursor:pointer;">
-                <span style="font-size:0.95rem;"><input type="checkbox" class="split-cb" data-name="${item.qty}x ${item.name}" value="${lineTotal}"> ${item.qty}x ${item.name}</span>
-                <span style="font-weight:bold; color:var(--brand);">₱${lineTotal.toFixed(2)}</span>
+            <label class="split-item-row">
+                <div style="font-size:1rem; display:flex; align-items:center;">
+                    <input type="checkbox" class="split-cb big-checkbox" data-name="${item.qty}x ${item.name}" value="${lineTotal}">
+                    <span style="font-weight:bold; color:var(--text-main); line-height:1.2;">${item.qty}x ${item.name}</span>
+                </div>
+                <span style="font-weight:900; color:var(--brand); font-size:1.1rem;">₱${lineTotal.toFixed(2)}</span>
             </label>`;
     });
     checklistHtml += `</div>`;
 
     const { value: splitResult } = await Swal.fire({
-        title: 'Select Items to Pay', html: checklistHtml, showCancelButton: true, confirmButtonText: 'Use Selected Total', cancelButtonText: 'Back', confirmButtonColor: 'var(--brand)',
+        title: 'Select Items to Pay', html: checklistHtml, showCancelButton: true, confirmButtonText: 'Use Selected Total', cancelButtonText: 'Back', confirmButtonColor: '#6B4226',
         preConfirm: () => {
             let sum = 0; let selectedNames = [];
             document.querySelectorAll('.split-cb:checked').forEach(cb => { sum += parseFloat(cb.value); selectedNames.push(cb.dataset.name); });
@@ -1189,11 +1222,28 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
 
     const { value: formValues } = await Swal.fire({
         title: 'Finalize Payment',
-        width: '800px', 
+        width: '800px', // SweetAlert max-widths this automatically on phones
         html: `
-            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; text-align: left;">
+            <style>
+                .checkout-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; text-align: left; }
+                .checkout-left { border-right: 1px solid #eee; padding-right: 20px; }
                 
-                <div style="border-right: 1px solid #eee; padding-right: 20px;">
+                /* 📱 MOBILE RESPONSIVE STYLES */
+                @media (max-width: 768px) {
+                    .checkout-grid { grid-template-columns: 1fr; gap: 10px; }
+                    .checkout-left { border-right: none; padding-right: 0; border-bottom: 2px dashed #eee; padding-bottom: 20px; margin-bottom: 10px; }
+                    
+                    /* Make inputs and buttons taller and easier to tap on phones */
+                    #pay-amount { height: 60px !important; font-size: 2rem !important; }
+                    #cash-pad button { height: 50px !important; font-size: 1rem !important; font-weight: 900 !important; }
+                    
+                    .pm-btn { padding: 10px !important; font-size: 0.9rem !important; }
+                }
+            </style>
+
+            <div class="checkout-grid">
+                
+                <div class="checkout-left">
                     <div style="background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee; margin-bottom:15px;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>Total Bill:</span> <span>₱${state.grand_total.toFixed(2)}</span></div>
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px; color:var(--text-muted); font-size:0.9rem;"><span>Already Paid:</span> <span>₱${state.amount_paid.toFixed(2)}</span></div>
@@ -1212,8 +1262,8 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
 
                     <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Payment Method</label>
                     <div style="display:flex; gap:10px; margin-top:8px; margin-bottom:20px;">
-                        <button type="button" id="btn-cash" style="flex:1; padding:15px; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;" onclick="setPayMethod('cash')">💵 CASH</button>
-                        <button type="button" id="btn-gcash" style="flex:1; padding:15px; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;" onclick="setPayMethod('gcash')">📱 GCASH</button>
+                        <button type="button" id="btn-cash" class="pm-btn" style="flex:1; padding:15px; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;" onclick="setPayMethod('cash')">💵 CASH</button>
+                        <button type="button" id="btn-gcash" class="pm-btn" style="flex:1; padding:15px; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;" onclick="setPayMethod('gcash')">📱 GCASH</button>
                     </div>
                     
                     <button class="btn secondary" style="width:100%; border-style:dashed;" onclick="splitBillByItem(${balance})">✂️ Split by Specific Items</button>
@@ -1240,14 +1290,13 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
         showCancelButton: true, confirmButtonText: 'PROCESS PAYMENT', confirmButtonColor: '#2e7d32',
         didOpen: () => {
             const amtInput = document.getElementById('pay-amount');
-            const tipInput = document.getElementById('pay-tip'); // Grab the tip input
+            const tipInput = document.getElementById('pay-tip'); 
             
             const updateChange = () => {
                 const targetDue = prefillAmount || balance;
                 const tendered = parseFloat(amtInput.value) || 0;
-                const tip = parseFloat(tipInput.value) || 0; // Include tip in math
+                const tip = parseFloat(tipInput.value) || 0; 
                 
-                // MATH: Change = Tendered - Bill - Tip
                 const change = Math.round((tendered - targetDue - tip) * 100) / 100;
                 
                 const changeEl = document.getElementById('co-change');
@@ -1260,7 +1309,6 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
                 }
             };
             
-            // Listen to BOTH inputs so change calculates dynamically!
             amtInput.addEventListener('input', updateChange);
             tipInput.addEventListener('input', updateChange);
             if (prefillAmount) updateChange();
@@ -1268,12 +1316,12 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
         preConfirm: () => {
             const method = document.getElementById('pay-method').value;
             const amount = parseFloat(document.getElementById('pay-amount').value);
-            const tip = parseFloat(document.getElementById('pay-tip').value) || 0; // Get Tip
+            const tip = parseFloat(document.getElementById('pay-tip').value) || 0; 
             
             if(isNaN(amount) || amount <= 0) { Swal.showValidationMessage('Enter a valid tendered amount'); return false; }
             if (amount < (balance + tip)) { Swal.showValidationMessage('Tendered amount is too low to cover bill + tip!'); return false; }
             
-            return { method, amount, tip }; // Pass tip to payload
+            return { method, amount, tip }; 
         }
     });
 
@@ -1285,7 +1333,7 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
                 order_id: state.activeOrderId, 
                 method: formValues.method, 
                 amount: formValues.amount, 
-                tip: formValues.tip, // SEND TIP TO SERVER
+                tip: formValues.tip, 
                 customer_name: state.customer_name 
             })
         });
@@ -1325,6 +1373,7 @@ window.printOrder = async function(type, event) {
     } catch(e) { Swal.fire('Error', 'Could not reach printer service.', 'error'); }
     if (btn) { btn.innerHTML = oldText; btn.disabled = false; }
 };
+
 window.transferTablePopup = async function() {
     if (!state.activeOrderId || state.activeOrderId === 'new') return;
     
@@ -1332,10 +1381,19 @@ window.transferTablePopup = async function() {
     const r = await fetch('../api/get_tables.php');
     const tables = await r.json();
     
-    let html = '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">';
+    // 📱 MOBILE CSS INJECTED HERE
+    let html = `
+    <style>
+        .table-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        @media (max-width: 600px) {
+            .table-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .table-grid div { padding: 25px 5px !important; font-size: 1.3rem !important; }
+        }
+    </style>
+    <div class="table-grid">`;
+    
     let hasAvailable = false;
     tables.forEach(t => {
-        // Only show tables that are empty!
         if (t.status === 'available') {
             hasAvailable = true;
             html += `<div style="padding:15px 5px; border-radius:8px; cursor:pointer; font-weight:bold; background:#f0fdf4; border:1px solid #bbf7d0; color:var(--brand-dark);" onclick="executeTransfer(${t.id}, '${t.table_number}')">${t.table_number}</div>`;
@@ -1395,20 +1453,31 @@ window.splitOrderPopup = async function() {
     let totalItems = state.cart.reduce((sum, i) => sum + i.qty, 0);
     if (totalItems < 2) return Swal.fire('Error', 'Not enough items to split. You need at least 2 items.', 'warning');
 
-    let html = `<div style="text-align:left; max-height:350px; overflow-y:auto; padding:5px;">`;
+    // 📱 MOBILE CSS INJECTED HERE
+    let html = `
+    <style>
+        .qty-btn-large { width: 35px; height: 35px; font-size: 1.5rem; display: inline-flex; align-items: center; justify-content: center; background: white; border: 1px solid #ccc; border-radius: 50%; cursor: pointer; }
+        @media (max-width: 600px) {
+            .qty-btn-large { width: 45px; height: 45px; font-size: 2rem; border-width: 2px; }
+            .split-row-item { flex-direction: column; align-items: flex-start !important; gap: 15px; padding: 20px 0 !important; }
+            .split-qty-wrapper { width: 100%; justify-content: space-between; background: transparent !important; padding: 0 !important; }
+        }
+    </style>
+    <div style="text-align:left; max-height:45vh; overflow-y:auto; padding:5px;">`;
+    
     html += `<div style="font-size:0.9rem; color:gray; margin-bottom:15px;">Select items to move to a new separate bill. <b>They will remain at this table.</b></div>`;
     
     state.cart.forEach((item, idx) => {
         html += `
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #ddd; padding:12px 0;">
+            <div class="split-row-item" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #ddd; padding:12px 0;">
                 <div style="flex:1; line-height:1.2; padding-right:10px;">
-                    <div style="font-weight:bold; font-size:1rem;">${item.name}</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted);">Current Check: ${item.qty}</div>
+                    <div style="font-weight:bold; font-size:1.1rem; color:var(--text-main);">${item.name}</div>
+                    <div style="font-size:0.9rem; color:var(--text-muted); margin-top:4px;">Current Check: ${item.qty}</div>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px; background:#f3f4f6; padding:6px; border-radius:30px;">
-                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer;" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
-                    <input type="number" id="sqty_${idx}" value="0" min="0" max="${item.qty}" style="width:30px; text-align:center; background:transparent; border:none; font-weight:bold; font-size:1.2rem; color:var(--brand);" readonly>
-                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer;" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
+                <div class="split-qty-wrapper" style="display:flex; align-items:center; gap:12px; background:#f3f4f6; padding:8px; border-radius:30px;">
+                    <span class="qty-btn-large" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
+                    <input type="number" id="sqty_${idx}" value="0" min="0" max="${item.qty}" style="width:40px; text-align:center; background:transparent; border:none; font-weight:900; font-size:1.4rem; color:var(--brand);" readonly>
+                    <span class="qty-btn-large" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
                 </div>
             </div>
         `;
@@ -1456,13 +1525,11 @@ window.splitOrderPopup = async function() {
         
         let originalTableName = document.getElementById('tableName').innerText.split(' - ')[0];
         
-        // 1. Update Check 1
         state.cart = proceed.keepCart;
         await window.saveOrder(true);
         
-        // 2. Setup Check 2 (STAYS ON DINE-IN, STAYS ON SAME TABLE)
         state.activeOrderId = 'new';
-        state.customer_name = 'Split Check'; // Helps identify it in the modal
+        state.customer_name = 'Split Check'; 
         state.cart = proceed.toMove; 
         state.discount_id = null; state.discount_note = ''; state.senior_details = []; state.custom_discount = {is_active:false}; state.amount_paid = 0;
         
