@@ -1,15 +1,15 @@
 {
   "name": "FogsTasa's POS",
-"short_name": "Fogs POS",
+  "short_name": "Fogs POS",
   "start_url": "/pos/index.php",
-  "scope": "/fogs/",
+  "scope": "/",
   "display": "fullscreen",
   "background_color": "#ffffff",
   "theme_color": "#6B4226",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/fogs/assets/img/favicon.png",
+      "src": "/assets/img/favicon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
