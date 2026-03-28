@@ -10,6 +10,12 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="manifest" href="../manifest.json">
+    <meta name="theme-color" content="#6B4226">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="../assets/img/favicon.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS - FogsTasa</title>
@@ -202,6 +208,16 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
         document.onclick = resetIdleTimer;
         document.onkeypress = resetIdleTimer;
         document.onscroll = resetIdleTimer;
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Notice the ../ pointing to the root folder!
+                navigator.serviceWorker.register('../sw.js')
+                    .then(() => console.log('Service Worker Active from Root'))
+                    .catch(err => console.error('Service Worker Failed:', err));
+            });
+        }
     </script>
 </body>
 </html>

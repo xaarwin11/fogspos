@@ -985,67 +985,64 @@ function syncOrderState(d) {
 }
 
 let isSaving = false;
-window.saveOrder = async function(silent = false, voidReason = null) { // ADDED voidReason PARAMETER
+window.saveOrder = async function(silent = false, voidReason = null) {
     if (isSaving) return;
     if (state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
     isSaving = true;
 
-    const response = await fetch('../api/save_order.php', {
-        method: 'POST', 
-        headers: { 
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': getCsrfToken() 
-        },
-        body: JSON.stringify({
-            items: state.cart, table_id: state.activeTableId, order_id: state.activeOrderId === 'new' ? null : state.activeOrderId,
-            order_type: state.mode, discount_id: state.discount_id, discount_note: state.discount_note, senior_details: state.senior_details,
-            custom_discount: state.custom_discount, customer_name: state.customer_name,
-            void_reason: voidReason // ADDED: Sent securely to PHP
-        })
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-        state.activeOrderId = result.order_id;
-        if(state.activeOrderId) {
-            const r = await fetch(`../api/get_active_order.php?order_id=${state.activeOrderId}`);
-            const d = await r.json();
-            if(d.success) { syncOrderState(d); renderCart(); }
-        }
-        if(!silent) Swal.fire({ icon: 'success', title: 'Order Saved', timer: 1000, showConfirmButton: false });
-        
-    } else if (result.error === 'Unauthorized') {
-        // 🚨 MAGIC FIX: RESCUE CART LOGIC (Session died while tablet was asleep)
-        const { value: pin } = await Swal.fire({
-            title: 'Session Expired',
-            text: 'Please enter your PIN to resume saving this order:',
-            input: 'password',
-            inputAttributes: { inputmode: 'numeric', pattern: '[0-9]*' },
-            showCancelButton: true,
-            confirmButtonColor: '#6B4226'
+    const payload = {
+        items: state.cart, table_id: state.activeTableId, order_id: state.activeOrderId === 'new' ? null : state.activeOrderId,
+        order_type: state.mode, discount_id: state.discount_id, discount_note: state.discount_note, senior_details: state.senior_details,
+        custom_discount: state.custom_discount, customer_name: state.customer_name,
+        void_reason: voidReason 
+    };
+
+    try {
+        const response = await fetch('../api/save_order.php', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify(payload)
         });
         
-        if (pin) {
-            Swal.fire({title:'Resuming...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-            const loginRes = await fetch('../api/auth_login.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ passcode: pin })
-            });
-            const loginData = await loginRes.json();
-            
-            if (loginData.success) {
-                // Inject the new security token into the page and re-run the save!
-                document.querySelector('meta[name="csrf-token"]').setAttribute('content', loginData.csrf_token);
-                return saveOrder(silent); 
-            } else {
-                Swal.fire('Error', 'Invalid PIN. Order not saved.', 'error');
-            }
+        // If the server returns a 500 error or is unreachable, throw it to the catch block
+        if (!response.ok) throw new Error('Server unreachable');
+        
+        const data = await response.json();
+        
+        // ... KEEP ALL YOUR EXISTING NORMAL SUCCESS CODE HERE ...
+        if (data.success) {
+            // ... your existing code ...
         }
-    } else {
-        Swal.fire('Error', result.error, 'error');
+
+    } catch (error) {
+        // 🔴 THE LAPTOP IS DOWN! Intercept the crash and save it locally!
+        console.warn("Server offline! Saving to local queue.");
+        saveToOfflineQueue(payload);
+        
+        if (!silent) {
+            Swal.fire({
+                title: 'Saved Offline', 
+                text: 'The server is currently unreachable. The order has been saved to this tablet. Please sync when the server is back online!', 
+                icon: 'warning',
+                confirmButtonColor: '#f59e0b'
+            });
+        }
+        
+        // Clear the cart so the cashier can immediately take the next customer!
+        state.cart = [];
+        state.activeTableId = null;
+        state.activeOrderId = null;
+        state.grand_total = 0;
+        document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+        renderCart();
+        
+        if (typeof showTablePopup === 'function' && state.mode !== 'takeout') {
+            showTablePopup();
+        }
+        
+    } finally {
+        isSaving = false;
     }
-    isSaving = false;
 };
 
 window.loadTakeout = async function(id) { 
@@ -1544,3 +1541,82 @@ window.splitOrderPopup = async function() {
         renderCart();
     }
 };
+
+// ==========================================
+// 🔴 OFFLINE QUEUE ENGINE
+// ==========================================
+
+function saveToOfflineQueue(payload) {
+    let queue = JSON.parse(localStorage.getItem('fogsOfflineOrders')) || [];
+    // Stamp it with the exact time it was taken
+    payload.offline_timestamp = new Date().toISOString(); 
+    queue.push(payload);
+    localStorage.setItem('fogsOfflineOrders', JSON.stringify(queue));
+    updateSyncButton();
+}
+
+window.syncOfflineOrders = async function() {
+    let queue = JSON.parse(localStorage.getItem('fogsOfflineOrders')) || [];
+    if (queue.length === 0) return Swal.fire('Up to date', 'No offline orders to sync.', 'info');
+
+    Swal.fire({title: 'Syncing...', text: `Sending ${queue.length} orders to server`, allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+
+    let successCount = 0;
+    let failedQueue = [];
+
+    for (let order of queue) {
+        try {
+            const res = await fetch('../api/save_order.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                body: JSON.stringify(order)
+            });
+            const data = await res.json();
+            if (data.success) {
+                successCount++;
+            } else {
+                failedQueue.push(order); // Server rejected it for some reason
+            }
+        } catch (e) {
+            failedQueue.push(order); // Server is still down!
+        }
+    }
+
+    // Update the queue with whatever failed to send
+    localStorage.setItem('fogsOfflineOrders', JSON.stringify(failedQueue));
+    updateSyncButton();
+
+    if (failedQueue.length === 0) {
+        Swal.fire('Synced!', `${successCount} orders successfully sent to the server.`, 'success');
+    } else {
+        Swal.fire('Partial Sync', `${successCount} synced, ${failedQueue.length} failed. Server might still be down.`, 'warning');
+    }
+};
+
+function updateSyncButton() {
+    let queue = JSON.parse(localStorage.getItem('fogsOfflineOrders')) || [];
+    let syncBtn = document.getElementById('offline-sync-btn');
+    
+    if (queue.length > 0) {
+        if (!syncBtn) {
+            syncBtn = document.createElement('button');
+            syncBtn.id = 'offline-sync-btn';
+            syncBtn.style.cssText = "position:fixed; top:15px; left:50%; transform:translateX(-50%); z-index:9999; background:#dc2626; color:white; font-weight:900; padding:12px 24px; border-radius:30px; border:2px solid white; cursor:pointer; box-shadow:0 4px 10px rgba(0,0,0,0.3); font-size:1rem; animation: pulse 2s infinite;";
+            syncBtn.onclick = window.syncOfflineOrders;
+            
+            // Add a little CSS pulse animation so they don't forget to sync
+            const style = document.createElement('style');
+            style.innerHTML = `@keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } 100% { transform: translateX(-50%) scale(1); } }`;
+            document.head.appendChild(style);
+            
+            document.body.appendChild(syncBtn);
+        }
+        syncBtn.innerHTML = `⚠️ SYNC ${queue.length} OFFLINE ORDERS`;
+        syncBtn.style.display = 'block';
+    } else if (syncBtn) {
+        syncBtn.style.display = 'none';
+    }
+}
+
+// Check for offline orders every time the app loads
+window.addEventListener('load', updateSyncButton);
