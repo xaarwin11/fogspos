@@ -539,7 +539,48 @@ window.editCartItem = async function(idx) {
     // --- STANDARD DATABASE ITEM LOGIC BELOW ---
     const p = state.products.find(x => x.id == item.id);
     if (!p) return;
-    
+
+    // 🌟 NEW BUG FIX: INTERCEPT "0 PESO" VARIABLE DB ITEMS (e.g. Corkage) 🌟
+    if (parseFloat(p.price) === 0 && (!p.variations || p.variations.length === 0)) {
+        const { value: formValues } = await Swal.fire({
+            title: `Edit ${p.name}`,
+            html: `
+                <div style="text-align:left;">
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Amount (₱)</label>
+                    <input type="number" id="oi-edit-price" class="search-bar" value="${item.price}" step="0.01" style="margin-bottom:10px; font-weight:bold; font-size:1.5rem; text-align:center; color:var(--brand-dark);">
+
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Details / Notes</label>
+                    <textarea id="oi-edit-note" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;">${item.item_notes || ''}</textarea>
+                </div>
+            `,
+            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Update', confirmButtonColor: '#6B4226', width: 400,
+            preConfirm: () => {
+                const price = parseFloat(document.getElementById('oi-edit-price').value);
+                const note = document.getElementById('oi-edit-note').value;
+                if (isNaN(price) || price < 0) { Swal.showValidationMessage('Valid amount required'); return false; }
+                return { price, note };
+            }
+        });
+
+        if (formValues) {
+            item.price = formValues.price;
+            item.item_notes = formValues.note || null;
+            
+            // Prevent duplicate stacking by checking unique key
+            const modKey = item.modifiers.map(m => m.id).sort().join(',');
+            const uniqueKey = `${item.id}-${item.variation_id}-${item.price}-${modKey}-${item.item_notes || ''}`;
+            const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.price}-${i.modifiers.map(m=>m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
+            
+            if (dupIdx > -1) { 
+                state.cart[dupIdx].qty += item.qty; 
+                state.cart.splice(idx, 1); 
+            }
+            renderCart();
+        }
+        return; // 🛑 Stop execution here so it doesn't open the standard modifier modal!
+    }
+
+    // --- NORMAL EDIT FLOW FOR REGULAR ITEMS ---
     let selectedMods = item.modifiers ? item.modifiers.map(m => m.id) : [];
 
     const options = await window.selectProductOptions(p, item.variation_id, selectedMods, item.item_notes, true);
