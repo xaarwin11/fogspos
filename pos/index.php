@@ -10,7 +10,7 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <?php include 'pwa_universal.php'; ?>
+    <?php include 'pwa.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS - FogsTasa</title>
