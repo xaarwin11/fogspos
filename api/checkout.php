@@ -20,7 +20,7 @@ $input = json_decode(file_get_contents('php://input'), true);
 $order_id = !empty($input['order_id']) ? (int)$input['order_id'] : null;
 $method = $input['method'] ?? 'cash';
 $amount = !empty($input['amount']) ? (float)$input['amount'] : 0;
-$tip = !empty($input['tip']) ? (float)$input['tip'] : 0; // NEW: Catch the tip!
+$tip = !empty($input['tip']) ? (float)$input['tip'] : 0; 
 $customer_name = isset($input['customer_name']) ? $input['customer_name'] : null; 
 
 if (!$order_id) { echo json_encode(['success' => false, 'error' => 'Order ID is required.']); exit; }
@@ -35,7 +35,10 @@ try {
     $order = $o_stmt->get_result()->fetch_assoc();
     $o_stmt->close();
 
-    if (!$order || $order['status'] !== 'open') throw new Exception("Order is already closed or doesn't exist.");
+    // 🌟 FIX: Allow checkout for open, preparing, and ready orders!
+    if (!$order || !in_array($order['status'], ['open', 'preparing', 'ready'])) {
+        throw new Exception("Order is already closed or doesn't exist.");
+    }
 
     if ($customer_name !== null) {
         $r_stmt = $mysqli->prepare("UPDATE orders SET customer_name = ? WHERE id = ?");
@@ -54,21 +57,22 @@ try {
     if ($balance <= 0) throw new Exception("Order is already fully paid.");
     if ($amount <= 0) throw new Exception("Payment amount must be greater than zero.");
 
-    // NEW MATH: Change is calculated AFTER the tip is removed from the tendered amount!
     $change = ($amount > ($balance + $tip)) ? ($amount - ($balance + $tip)) : 0;
-    
-    // The actual money going towards the food bill
     $net_payment = $amount - $change - $tip; 
 
-    // Save the Tip to the Orders table
+    // Crash-Proof Tip Saver
     if ($tip > 0) {
-        $t_stmt = $mysqli->prepare("UPDATE orders SET tip_amount = tip_amount + ? WHERE id = ?");
-        $t_stmt->bind_param('di', $tip, $order_id);
-        $t_stmt->execute();
-        $t_stmt->close();
+        try {
+            $t_stmt = $mysqli->prepare("UPDATE orders SET tip_amount = tip_amount + ? WHERE id = ?");
+            if ($t_stmt) {
+                $t_stmt->bind_param('di', $tip, $order_id);
+                $t_stmt->execute();
+                $t_stmt->close();
+            }
+        } catch (Exception $e) { }
     }
 
-    // Save the Payment Ledger
+    // Save the Payment
     $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
     $p_stmt->bind_param('isddi', $order_id, $method, $amount, $change, $_SESSION['user_id']);
     $p_stmt->execute();

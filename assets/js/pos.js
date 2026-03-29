@@ -661,46 +661,51 @@ window.promptItemDiscount = async function(idx) {
 window.clearCart = async function() {
     if (state.cart.length === 0 && !state.activeOrderId) return Swal.fire('Empty', 'Your cart is already empty.', 'info');
 
-    if (state.activeOrderId && state.activeOrderId !== 'new') {
-        // SECURITY: Order is saved! Force PIN and Reason to kill the table.
-        const { value: formValues } = await Swal.fire({
-            title: 'Void Entire Order?',
-            html: `
-                <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
-                    This table is active. To void the whole ticket, please authorize.
-                </div>
-                <input type="text" id="clear-reason" class="swal2-input" placeholder="Reason (e.g. Walk-out)">
-                <input type="password" id="clear-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
-            `,
-            icon: 'warning', showCancelButton: true, confirmButtonText: 'Void Table', confirmButtonColor: '#d33',
-            preConfirm: () => {
-                const reason = document.getElementById('clear-reason').value;
-                const pin = document.getElementById('clear-pin').value;
-                if (!reason || !pin) { Swal.showValidationMessage('Reason and Manager PIN are required!'); return false; }
-                return { reason, pin };
-            }
-        });
+    // 🌟 THE BRAIN: Check if ANY item in the cart has already been sent to the kitchen
+    let hasPrintedItems = false;
+    state.cart.forEach(item => {
+        if ((parseInt(item.kitchen_printed) || 0) > 0) hasPrintedItems = true;
+    });
 
-        if (formValues) {
-            Swal.fire({title:'Voiding...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-            try {
-                const res = await fetch('../api/clear_order.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
-                    body: JSON.stringify({order_id: state.activeOrderId, reason: formValues.reason, pin: formValues.pin})
-                });
-                const data = await res.json();
-                if (data.success) {
-                    Swal.fire('Voided!', 'Table has been cleared.', 'success');
-                    state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
-                    document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
-                    renderCart();
-                    if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
-                } else { Swal.fire('Error', data.error, 'error'); }
-            } catch (e) { Swal.fire('Error', 'Connection failed', 'error'); }
+    if (state.activeOrderId && state.activeOrderId !== 'new') {
+        if (hasPrintedItems) {
+            // SECURITY: Items are in the kitchen! Force PIN and Reason to kill the table.
+            const { value: formValues } = await Swal.fire({
+                title: 'Void Entire Order?',
+                html: `
+                    <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
+                        Items have already been sent to the kitchen. To void the whole ticket, please authorize.
+                    </div>
+                    <input type="text" id="clear-reason" class="swal2-input" placeholder="Reason (e.g. Walk-out)">
+                    <input type="password" id="clear-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+                `,
+                icon: 'warning', showCancelButton: true, confirmButtonText: 'Void Table', confirmButtonColor: '#d33',
+                preConfirm: () => {
+                    const reason = document.getElementById('clear-reason').value;
+                    const pin = document.getElementById('clear-pin').value;
+                    if (!reason || !pin) { Swal.showValidationMessage('Reason and Manager PIN are required!'); return false; }
+                    return { reason, pin };
+                }
+            });
+
+            if (formValues) {
+                executeClearOrder(formValues.reason, formValues.pin);
+            }
+        } else {
+            // NO ITEMS PRINTED YET: Just ask for a simple Yes/No confirmation without a PIN!
+            Swal.fire({
+                title: 'Clear Cart?', 
+                text: 'Remove all items and cancel this order?', 
+                icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33'
+            }).then((res) => {
+                if (res.isConfirmed) {
+                    // Empty PIN works here because the API allows logged-in cashiers to void unprinted orders
+                    executeClearOrder('Cancelled before sending to kitchen', ''); 
+                }
+            });
         }
     } else {
-        // Unsaved order: Allow normal clearing
+        // Unsaved order: Allow normal clearing locally
         Swal.fire({ title: 'Clear Cart?', text: 'Remove all unsaved items?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then((res) => {
             if (res.isConfirmed) {
                 state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
@@ -711,6 +716,26 @@ window.clearCart = async function() {
         });
     }
 };
+
+// Helper function to keep the code clean
+async function executeClearOrder(reason, pin) {
+    Swal.fire({title:'Voiding...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    try {
+        const res = await fetch('../api/clear_order.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({order_id: state.activeOrderId, reason: reason, pin: pin})
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire('Cleared!', 'Order has been cancelled.', 'success');
+            state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+            document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+            renderCart();
+            if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+        } else { Swal.fire('Error', data.error, 'error'); }
+    } catch (e) { Swal.fire('Error', 'Connection failed', 'error'); }
+}
 
 window.applyDiscountPopup = async function() {
     if(state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
@@ -1004,18 +1029,21 @@ window.saveOrder = async function(silent = false, voidReason = null) {
             body: JSON.stringify(payload)
         });
         
-        // If the server returns a 500 error or is unreachable, throw it to the catch block
         if (!response.ok) throw new Error('Server unreachable');
-        
         const data = await response.json();
         
-        // ... KEEP ALL YOUR EXISTING NORMAL SUCCESS CODE HERE ...
         if (data.success) {
-            // ... your existing code ...
+            // 🌟 RESTORED MAGIC: Save the new ID so the POS knows what to do!
+            state.activeOrderId = data.order_id;
+            if (!silent) {
+                Swal.fire({title: 'Saved!', icon: 'success', timer: 700, showConfirmButton: false});
+            }
+            renderCart();
+        } else {
+            Swal.fire('Error', data.error || 'Failed to save order.', 'error');
         }
 
     } catch (error) {
-        // 🔴 THE LAPTOP IS DOWN! Intercept the crash and save it locally!
         console.warn("Server offline! Saving to local queue.");
         saveToOfflineQueue(payload);
         
@@ -1023,22 +1051,14 @@ window.saveOrder = async function(silent = false, voidReason = null) {
             Swal.fire({
                 title: 'Saved Offline', 
                 text: 'The server is currently unreachable. The order has been saved to this tablet. Please sync when the server is back online!', 
-                icon: 'warning',
-                confirmButtonColor: '#f59e0b'
+                icon: 'warning', confirmButtonColor: '#f59e0b'
             });
         }
         
-        // Clear the cart so the cashier can immediately take the next customer!
-        state.cart = [];
-        state.activeTableId = null;
-        state.activeOrderId = null;
-        state.grand_total = 0;
+        state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
         document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
         renderCart();
-        
-        if (typeof showTablePopup === 'function' && state.mode !== 'takeout') {
-            showTablePopup();
-        }
+        if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
         
     } finally {
         isSaving = false;

@@ -9,7 +9,7 @@ try {
     $mysqli = get_db_conn();
 
     if ($o_id > 0) {
-        $stmt = $mysqli->prepare("SELECT * FROM orders WHERE id = ? AND status = 'open'");
+        $stmt = $mysqli->prepare("SELECT * FROM orders WHERE id = ? AND status IN ('open', 'preparing', 'ready')");
         $stmt->bind_param('i', $o_id);
         $stmt->execute();
         $order = $stmt->get_result()->fetch_assoc();
@@ -20,7 +20,7 @@ try {
                    GROUP_CONCAT(CONCAT(oi.quantity, 'x ', oi.product_name) SEPARATOR ', ') as item_summary
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
-            WHERE o.table_id = ? AND o.status = 'open'
+            WHERE o.table_id = ? AND o.status IN ('open', 'preparing', 'ready')
             GROUP BY o.id
             ORDER BY o.id ASC
         ");

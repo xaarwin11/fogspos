@@ -114,7 +114,9 @@ try {
         .date-nav-btn { padding: 12px 18px; text-decoration: none; color: var(--brand); background: #f8fafc; font-weight: bold; font-size: 1.1rem; transition: 0.2s; }
         .date-display { padding: 12px 25px; font-weight: 800; color: var(--text-main); position: relative; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }
         .hidden-date-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-
+        .status-preparing { background: #dbeafe; color: #1e3a8a; }
+        .status-ready { background: #e0e7ff; color: #3730a3; }
+        
         @media (max-width: 1024px) {
             .dashboard-layout { margin: 15px auto; padding: 0 10px; }
             .bento-grid { grid-template-columns: 1.6fr 1fr; gap: 15px; } 
@@ -240,8 +242,17 @@ try {
                                     <td style="font-weight:900; color:var(--text-main); font-size:1.05rem;">₱<?= number_format((float)$o['grand_total'], 2) ?></td>
                                     <td style="text-align:right; white-space: nowrap;">
                                         <button onclick="viewOrderDetails(<?= $o['id'] ?>)" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; transition:0.2s;">Receipt</button>
+                                        
                                         <?php if(isset($o['status']) && $o['status'] === 'open'): ?>
+                                            <button onclick="updateOrderStatus(<?= $o['id'] ?>, 'preparing')" style="background:#dcfce7; color:#166534; border:1px solid #bbf7d0; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Accept</button>
                                             <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#fef3c7; color:#b45309; border:1px solid #fde047; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Void</button>
+                                        
+                                        <?php elseif(isset($o['status']) && $o['status'] === 'preparing'): ?>
+                                            <button onclick="updateOrderStatus(<?= $o['id'] ?>, 'ready')" style="background:#dbeafe; color:#1d4ed8; border:1px solid #bfdbfe; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Mark Ready</button>
+                                            <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#fef3c7; color:#b45309; border:1px solid #fde047; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Void</button>
+                                        
+                                        <?php elseif(isset($o['status']) && $o['status'] === 'ready'): ?>
+                                            <span style="font-size: 12px; color: #64748b; font-weight: bold; margin-left: 10px;">Waiting for Payment...</span>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -460,6 +471,25 @@ try {
             });
         }
         
+        async function updateOrderStatus(orderId, newStatus) {
+            try {
+                const res = await fetch('../api/update_order_status.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order_id: orderId, status: newStatus })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    fetchLiveUpdates(); // Instantly refresh the dashboard table!
+                } else {
+                    Swal.fire('Error', data.error || 'Could not update status.', 'error');
+                }
+            } catch(e) {
+                Swal.fire('Error', 'Connection failed.', 'error');
+            }
+        }
+
         // --- 1. RECEIPT MODAL NOW RESTRICTED TO 420px (80mm styling) ---
         async function viewOrderDetails(orderId) {
             try {
@@ -472,16 +502,32 @@ try {
                 
                 const o = data.order;
                 
+                let customerDisplay = o.customer_name ? o.customer_name : 'Guest';
                 let html = `<div style="text-align:left; font-family:'Courier New', Courier, monospace; background:white; padding:15px; border-radius:4px; max-height:60vh; overflow-y:auto; font-size:0.9rem; border:1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">`;
                 
-                html += `<div style="text-align:center; font-weight:900; font-size:1.3rem; margin-bottom:15px; color:var(--text-main);">ORDER #${o.id}</div>`;
+                // Thermal Receipt Header
+                html += `<div style="text-align:center; border-bottom: 2px dashed #94a3b8; padding-bottom: 10px; margin-bottom: 15px;">
+                            <h2 style="margin: 0; font-size: 1.2rem; font-weight: 900; color:var(--text-main);">FOGS TASAS CAFE</h2>
+                            <p style="margin: 2px 0 0 0; font-size: 0.8rem; font-weight: bold; color:var(--text-muted);">San Esteban, Ilocos Sur</p>
+                         </div>`;
+                
+                // Order Info
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Order:</span> <span style="font-weight:900;">#${o.id}</span></div>`;
+                if (o.reference && o.reference.startsWith('WEB-')) {
+                    html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Ref:</span> <span style="font-weight:bold;">${o.reference}</span></div>`;
+                }
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Opened:</span> <span>${new Date(o.created_at).toLocaleString()}</span></div>`;
-                if (o.paid_at) { html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Closed:</span> <span>${new Date(o.paid_at).toLocaleString()}</span></div>`; }
                 
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Type:</span> <span style="font-weight:bold;">${o.order_type.toUpperCase()} ${o.table_number ? '(T-'+o.table_number+')' : ''}</span></div>`;
-                if (o.cashier) html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Cashier:</span> <span>${o.cashier}</span></div>`;
+                
+                // Customer Name Prominently Displayed
+                html += `<div style="display:flex; justify-content:space-between; margin-top: 8px; padding-top: 8px; border-top: 1px dotted #cbd5e1; margin-bottom:15px;">
+                            <span>Customer:</span> 
+                            <span style="font-weight:900; font-size:1.1rem; text-transform:uppercase; color:var(--brand-dark);">${customerDisplay}</span>
+                         </div>`;
+                         
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : (o.status === 'refunded' ? '#dc2626' : '#d97706'))}">${o.status.toUpperCase()}</span></div>`;
-
+                
                 // FIX 1: RESTORE THE REASON AT THE TOP OF THE RECEIPT FROM THE NEW RELATIONAL LOGS
                 if (o.status === 'voided' && data.void_logs && data.void_logs.length > 0) {
                     let mainReason = data.void_logs[data.void_logs.length - 1].reason; // Get the most recent reason

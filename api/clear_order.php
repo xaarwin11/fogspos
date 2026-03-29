@@ -42,7 +42,10 @@ try {
     $o_stmt->close();
 
     if (!$order) throw new Exception("Order not found.");
-    if ($order['status'] !== 'open') throw new Exception("Only OPEN/UNPAID orders can be voided.");
+    // 🌟 FIX: Allow voiding for orders that are open, preparing, or ready!
+    if (!in_array($order['status'], ['open', 'preparing', 'ready'])) {
+        throw new Exception("Only UNPAID orders can be voided.");
+    }
 
     // 3. Create Relational Void Header
     $v_stmt = $mysqli->prepare("INSERT INTO voids (order_id, manager_id, reason, created_at) VALUES (?, ?, ?, NOW())");
