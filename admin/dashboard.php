@@ -34,8 +34,7 @@ try {
         $stmt_top->close();
     }
     
-    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales, COALESCE(SUM(discount_total), 0) as total_discounts FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {
-        $stmt1->bind_param('s', $date);
+    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales, COALESCE(SUM(discount_total), 0) as total_discounts, COALESCE(SUM(tip_amount), 0) as total_tips FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {        $stmt1->bind_param('s', $date);
         $stmt1->execute();
         $sales = $stmt1->get_result()->fetch_assoc();
         $stmt1->close();
@@ -108,14 +107,15 @@ try {
         .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
         .status-paid { background: #dcfce7; color: #166534; }
         .status-open { background: #fef9c3; color: #c2410c; }
+        .status-pending { background: #fef08a; color: #854d0e; } /* ADDED PENDING STATUS COLOR */
+        .status-preparing { background: #dbeafe; color: #1e3a8a; }
+        .status-ready { background: #e0e7ff; color: #3730a3; }
         .status-voided, .status-refunded { background: #fee2e2; color: #b91c1c; }
         
         .date-navigator { display: flex; align-items: center; background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); overflow: hidden; width: fit-content; }
         .date-nav-btn { padding: 12px 18px; text-decoration: none; color: var(--brand); background: #f8fafc; font-weight: bold; font-size: 1.1rem; transition: 0.2s; }
         .date-display { padding: 12px 25px; font-weight: 800; color: var(--text-main); position: relative; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }
         .hidden-date-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-        .status-preparing { background: #dbeafe; color: #1e3a8a; }
-        .status-ready { background: #e0e7ff; color: #3730a3; }
         
         @media (max-width: 1024px) {
             .dashboard-layout { margin: 15px auto; padding: 0 10px; }
@@ -183,6 +183,11 @@ try {
                     <div style="font-size:0.85rem; color:rgba(255,255,255,0.7); margin-top:5px; font-weight:bold;">For <?= date('M d, Y', strtotime($date)) ?></div>
                 </div>
                 <div class="stat-card">
+                    <h3>Tips Collected</h3>
+                    <div class="value" style="color:#16a34a;">₱<?= number_format((float)($sales['total_tips'] ?? 0), 2) ?></div>
+                    <div style="font-size:0.85rem; color:gray; margin-top:5px; font-weight:bold;">Staff Gratuity</div>
+                </div>
+                <div class="stat-card">
                     <h3>Discounts Issued</h3>
                     <div class="value" style="color:#dc2626;">-₱<?= number_format((float)($sales['total_discounts'] ?? 0), 2) ?></div>
                     <div style="font-size:0.85rem; color:gray; margin-top:5px; font-weight:bold;">SC & PWD</div>
@@ -229,30 +234,32 @@ try {
                                 <?php foreach($orders as $o): ?>
                                 <?php 
                                     $minutes_open = round((time() - strtotime($o['created_at'])) / 60);
-                                    $warning_color = ($o['status'] === 'open' && $minutes_open > 45) ? 'color:#dc2626; font-weight:900;' : 'font-weight:600;';
+                                    $warning_color = (in_array($o['status'], ['open', 'pending']) && $minutes_open > 45) ? 'color:#dc2626; font-weight:900;' : 'font-weight:600;';
                                 ?>
                                 <tr>
                                     <td style="color:var(--brand-dark); font-weight:bold;">#<?= $o['id'] ?></td>
                                     <td style="color:var(--text-muted); font-size:0.9rem;"><b><?= date('h:i A', strtotime($o['created_at'])) ?></b></td>
                                     <td style="text-transform:capitalize; <?= $warning_color ?>">
                                         <?= $o['order_type'] === 'takeout' ? '🥡 Takeout' : '🍽️ Table ' . htmlspecialchars($o['table_number'] ?? 'N/A') ?>
-                                        <?php if($o['status'] === 'open' && $minutes_open > 45) echo "<br><small style='color:#dc2626;'>Waiting {$minutes_open}m!</small>"; ?>
+                                        <?php if(in_array($o['status'], ['open', 'pending']) && $minutes_open > 45) echo "<br><small style='color:#dc2626;'>Waiting {$minutes_open}m!</small>"; ?>
                                     </td>
                                     <td><span class="status-badge status-<?= htmlspecialchars($o['status'] ?? 'open') ?>"><?= htmlspecialchars($o['status'] ?? 'OPEN') ?></span></td>
                                     <td style="font-weight:900; color:var(--text-main); font-size:1.05rem;">₱<?= number_format((float)$o['grand_total'], 2) ?></td>
+                                    
                                     <td style="text-align:right; white-space: nowrap;">
-                                        <button onclick="viewOrderDetails(<?= $o['id'] ?>)" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; transition:0.2s;">Receipt</button>
-                                        
-                                        <?php if(isset($o['status']) && $o['status'] === 'open'): ?>
-                                            <button onclick="updateOrderStatus(<?= $o['id'] ?>, 'preparing')" style="background:#dcfce7; color:#166534; border:1px solid #bbf7d0; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Accept</button>
-                                            <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#fef3c7; color:#b45309; border:1px solid #fde047; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Void</button>
-                                        
-                                        <?php elseif(isset($o['status']) && $o['status'] === 'preparing'): ?>
-                                            <button onclick="updateOrderStatus(<?= $o['id'] ?>, 'ready')" style="background:#dbeafe; color:#1d4ed8; border:1px solid #bfdbfe; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Mark Ready</button>
-                                            <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#fef3c7; color:#b45309; border:1px solid #fde047; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin-left:5px;">Void</button>
-                                        
-                                        <?php elseif(isset($o['status']) && $o['status'] === 'ready'): ?>
-                                            <span style="font-size: 12px; color: #64748b; font-weight: bold; margin-left: 10px;">Waiting for Payment...</span>
+                                        <?php if($o['status'] === 'pending'): ?>
+                                            <button onclick="updateOrderStatus(<?= $o['id'] ?>, 'preparing')" style="background:var(--brand); color:white; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:bold;">✅ Accept Web Order</button>
+                                            <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#dc2626; color:white; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:bold; margin-left:5px;">❌ Reject</button>
+
+                                        <?php elseif($o['status'] === 'preparing'): ?>
+                                            <button onclick="updateOrderStatus(<?= $o['id'] ?>, 'ready')" style="background:#f59e0b; color:white; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:bold;">🛎️ Mark Ready</button>
+
+                                        <?php elseif($o['status'] === 'open' || $o['status'] === 'ready'): ?>
+                                            <button onclick="viewOrderDetails(<?= $o['id'] ?>)" style="background:#16a34a; color:white; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:bold;">💳 View / Pay</button>
+                                            <button onclick="voidOpenOrder(<?= $o['id'] ?>)" style="background:#dc2626; color:white; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-weight:bold; margin-left:5px;">🗑️ Void</button>
+
+                                        <?php else: // paid, voided, refunded ?>
+                                            <button onclick="viewOrderDetails(<?= $o['id'] ?>)" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; transition:0.2s;">🧾 Receipt</button>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -453,19 +460,33 @@ try {
         async function voidOpenOrder(orderId) {
             Swal.fire({
                 title: `Void Order #${orderId}?`,
-                text: "This order is unpaid. Are you sure you want to void it entirely?",
-                icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, Void It', confirmButtonColor: '#f59e0b'
+                html: `
+                    <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
+                        Please provide a reason and Manager PIN to void this order.
+                    </div>
+                    <input type="text" id="dash-void-reason" class="swal2-input" placeholder="Reason (e.g. Walk-out, Fake Order)">
+                    <input type="password" id="dash-void-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+                `,
+                icon: 'warning', showCancelButton: true, confirmButtonText: 'Void Order', confirmButtonColor: '#d33',
+                preConfirm: () => {
+                    const reason = document.getElementById('dash-void-reason').value;
+                    const pin = document.getElementById('dash-void-pin').value;
+                    if (!reason || !pin) { Swal.showValidationMessage('Reason and Manager PIN are required!'); return false; }
+                    return { reason, pin };
+                }
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                    Swal.fire({title: 'Voiding...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
                     try {
                         const res = await fetch('../api/clear_order.php', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify({ order_id: orderId })
+                            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, 
+                            body: JSON.stringify({ order_id: orderId, reason: result.value.reason, pin: result.value.pin })
                         });
                         const data = await res.json();
                         if (data.success) {
                             Swal.fire({icon: 'success', title: 'Order Voided', timer: 1000, showConfirmButton: false}).then(() => fetchLiveUpdates());
-                        } else { Swal.fire('Error', data.error || 'Could not void order.', 'error'); }
+                        } else { Swal.fire('Declined', data.error || 'Invalid PIN or error.', 'error'); }
                     } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
                 }
             });
@@ -481,7 +502,7 @@ try {
                 const data = await res.json();
                 
                 if (data.success) {
-                    fetchLiveUpdates(); // Instantly refresh the dashboard table!
+                    fetchLiveUpdates(); 
                 } else {
                     Swal.fire('Error', data.error || 'Could not update status.', 'error');
                 }
@@ -490,7 +511,41 @@ try {
             }
         }
 
-        // --- 1. RECEIPT MODAL NOW RESTRICTED TO 420px (80mm styling) ---
+        // --- NEW TIP FUNCTION ---
+        async function addTip(orderId) {
+            Swal.close();
+            const { value: tipAmount } = await Swal.fire({
+                title: 'Add Cash Tip',
+                html: `
+                    <div style="font-size:0.9rem; color:gray; margin-bottom:10px;">Enter the tip amount left on the table.</div>
+                    <input type="number" id="tip-input" class="swal2-input" placeholder="Amount (₱)" step="0.01" style="font-size:1.5rem; text-align:center; font-weight:bold; color:var(--brand-dark);">
+                `,
+                showCancelButton: true, confirmButtonText: 'Save Tip', confirmButtonColor: '#2e7d32',
+                preConfirm: () => {
+                    const val = parseFloat(document.getElementById('tip-input').value);
+                    if (isNaN(val) || val <= 0) { Swal.showValidationMessage('Enter a valid amount'); return false; }
+                    return val;
+                }
+            });
+
+            if (tipAmount) {
+                Swal.fire({title: 'Saving...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+                try {
+                    const res = await fetch('../api/add_tip.php', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ order_id: orderId, tip_amount: tipAmount })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        Swal.fire({icon: 'success', title: 'Tip Added!', timer: 1000, showConfirmButton: false}).then(() => {
+                            viewOrderDetails(orderId);
+                        });
+                    } else { Swal.fire('Error', data.error, 'error'); }
+                } catch(e) { Swal.fire('Error', 'Connection failed.', 'error'); }
+            }
+        }
+
+        // --- RECEIPT WITH TIP DISPLAY ---
         async function viewOrderDetails(orderId) {
             try {
                 Swal.fire({title: 'Loading Receipt...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
@@ -502,7 +557,6 @@ try {
                 
                 const o = data.order;
                 
-                let customerDisplay = o.customer_name ? o.customer_name : 'Guest';
                 let html = `<div style="text-align:left; font-family:'Courier New', Courier, monospace; background:white; padding:15px; border-radius:4px; max-height:60vh; overflow-y:auto; font-size:0.9rem; border:1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">`;
                 
                 // Thermal Receipt Header
@@ -520,17 +574,21 @@ try {
                 
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Type:</span> <span style="font-weight:bold;">${o.order_type.toUpperCase()} ${o.table_number ? '(T-'+o.table_number+')' : ''}</span></div>`;
                 
-                // Customer Name Prominently Displayed
-                html += `<div style="display:flex; justify-content:space-between; margin-top: 8px; padding-top: 8px; border-top: 1px dotted #cbd5e1; margin-bottom:15px;">
-                            <span>Customer:</span> 
-                            <span style="font-weight:900; font-size:1.1rem; text-transform:uppercase; color:var(--brand-dark);">${customerDisplay}</span>
-                         </div>`;
+                // Only show Customer Name IF one actually exists in the database
+                if (o.customer_name && o.customer_name.trim() !== '') {
+                    html += `<div style="display:flex; justify-content:space-between; margin-top: 8px; padding-top: 8px; border-top: 1px dotted #cbd5e1; margin-bottom:15px;">
+                                <span>Customer:</span> 
+                                <span style="font-weight:900; font-size:1.1rem; text-transform:uppercase; color:var(--brand-dark);">${o.customer_name}</span>
+                             </div>`;
+                } else {
+                    // Just add a little spacing if there is no name row
+                    html += `<div style="margin-top: 15px;"></div>`;
+                }
                          
-                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : (o.status === 'refunded' ? '#dc2626' : '#d97706'))}">${o.status.toUpperCase()}</span></div>`;
-                
-                // FIX 1: RESTORE THE REASON AT THE TOP OF THE RECEIPT FROM THE NEW RELATIONAL LOGS
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:15px;"><span>Status:</span> <span style="font-weight:900; color:${o.status === 'paid' ? '#16a34a' : (o.status === 'voided' ? '#dc2626' : (o.status === 'refunded' ? '#dc2626' : (o.status === 'pending' ? '#d97706' : '#2563eb')))}">${o.status.toUpperCase()}</span></div>`;
+
                 if (o.status === 'voided' && data.void_logs && data.void_logs.length > 0) {
-                    let mainReason = data.void_logs[data.void_logs.length - 1].reason; // Get the most recent reason
+                    let mainReason = data.void_logs[data.void_logs.length - 1].reason; 
                     html += `<div style="margin-top: 5px; padding: 5px; background: #ffebee; border-left: 3px solid #c62828; margin-bottom:15px;"><strong>Void Reason:</strong> <span style="color:#c62828; font-weight:bold;">${mainReason}</span></div>`;
                 } else if (o.status === 'refunded' && data.refund_logs && data.refund_logs.length > 0) {
                     let mainReason = data.refund_logs[data.refund_logs.length - 1].reason;
@@ -593,6 +651,22 @@ try {
                     });
                 }
 
+                // SHOW TIP
+                if (parseFloat(o.tip_amount) > 0) {
+                    html += `<div style="border-top:1px dashed #94a3b8; margin:15px 0;"></div>`;
+                    html += `<div style="display:flex; justify-content:space-between; font-weight:bold; color:#16a34a; font-size:1.1rem;"><span>Staff Tip:</span> <span>₱${parseFloat(o.tip_amount).toFixed(2)}</span></div>`;
+                }
+
+                // TIP BUTTON FOR PAID ORDERS
+                if (o.status === 'paid') {
+                     html += `
+                     <div style="margin-top:20px;">
+                        <button onclick="addTip(${o.id})" style="width:100%; padding:12px; background:#f0fdf4; color:#166534; border:2px dashed #bbf7d0; border-radius:8px; font-weight:bold; cursor:pointer; font-size:1rem;">
+                            💚 Add Cash Tip Left on Table
+                        </button>
+                     </div>`;
+                }
+
                 if (data.refund_logs && data.refund_logs.length > 0) {
                     html += `<div style="border-top:2px solid #dc2626; margin:15px 0 10px 0;"></div>`;
                     html += `<div style="margin-bottom:8px; font-weight:900; color:#dc2626; text-transform:uppercase; font-size:0.8rem;">Refund History</div>`;
@@ -610,7 +684,6 @@ try {
                     });
                 }
 
-                // FIX 2: PREVENT DOUBLE LISTING BY HIDING KITCHEN VOIDS IF WHOLE ORDER IS CANCELLED
                 if (o.status !== 'voided' && data.void_logs && data.void_logs.length > 0) {
                     html += `<div style="border-top:2px solid #f59e0b; margin:15px 0 10px 0;"></div>`;
                     html += `<div style="margin-bottom:8px; font-weight:900; color:#b45309; text-transform:uppercase; font-size:0.8rem;">Kitchen Voids (Waste)</div>`;
@@ -644,8 +717,6 @@ try {
             } catch(e) { Swal.fire('Error', 'Could not load receipt.', 'error'); }
         }
 
-
-        // --- 2 & 3. PARTIAL QUANTITY REFUNDS + WHOLE BILL BUTTON ---
         window.adjRefQty = function(btn, delta, max) {
             let input = btn.parentElement.querySelector('.ref-qty');
             let val = parseInt(input.value) + delta;
@@ -698,7 +769,7 @@ try {
                         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
                         body: JSON.stringify({ order_id: orderId, pin: formValues.pin, reason: formValues.reason })
                     });
-                    const text = await res.text(); // Grab raw text first to catch PHP crashes
+                    const text = await res.text(); 
                     try {
                         const data = JSON.parse(text);
                         if (data.success) {

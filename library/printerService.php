@@ -285,7 +285,17 @@ class PrinterService
         $this->printer->setEmphasis(false);
         $this->printer->selectPrintMode(Printer::MODE_FONT_A); 
 
+        // --- NEW: Add the Staff Tip securely below the Grand Total ---
+        if (isset($meta['Tip']) && $meta['Tip'] > 0) {
+            $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
+            $this->printer->setEmphasis(true);
+            $this->printer->text($this->columnize("STAFF TIP", number_format($meta['Tip'], 2)));
+            $this->printer->setEmphasis(false);
+        }
+
         if (isset($meta['Tendered']) && isset($meta['Change'])) {
+            $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
+            
             // Grab the actual payment method, default to CASH if empty, and make it uppercase!
             $methodLabel = !empty($meta['Method']) ? mb_strtoupper((string)$meta['Method'], 'UTF-8') : "CASH";
             

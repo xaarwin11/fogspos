@@ -1033,8 +1033,15 @@ window.saveOrder = async function(silent = false, voidReason = null) {
         const data = await response.json();
         
         if (data.success) {
-            // 🌟 RESTORED MAGIC: Save the new ID so the POS knows what to do!
             state.activeOrderId = data.order_id;
+            
+            // 🌟 THE FIX: Immediately re-sync with the database to grab the server's calculated discount math!
+            if (state.activeOrderId && state.activeOrderId !== 'new') {
+                const syncRes = await fetch(`../api/get_active_order.php?order_id=${state.activeOrderId}`);
+                const syncData = await syncRes.json();
+                if (syncData.success) syncOrderState(syncData);
+            }
+
             if (!silent) {
                 Swal.fire({title: 'Saved!', icon: 'success', timer: 700, showConfirmButton: false});
             }
@@ -1376,18 +1383,50 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
 };
 
 window.printOrder = async function(type, event) {
+    // 1. FORCE SAVE: Make sure the database has the latest items before sending to the kitchen!
+    if (type === 'kitchen') {
+        await saveOrder(true);
+    }
+
     if (!state.activeOrderId) return Swal.fire('Error', 'Please save the order first before printing.', 'warning');
+    
     const btn = event ? event.currentTarget : null;
     let oldText = "";
-    if (btn) { oldText = btn.innerHTML; btn.innerHTML = "Printing..."; btn.disabled = true; }
+    if (btn) { oldText = btn.innerHTML; btn.innerHTML = "Sending..."; btn.disabled = true; }
+    
     try {
+        Swal.fire({title: 'Contacting Printer...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+        
         const r = await fetch(`../api/print_order.php?order_id=${state.activeOrderId}&type=${type}`);
-        const d = await r.json();
+        const text = await r.text(); // Catch raw text to prevent silent JSON crashes
+        
+        let d;
+        try { 
+            d = JSON.parse(text); 
+        } catch(err) { 
+            throw new Error('Printer API crashed. Raw response: ' + text.substring(0, 100)); 
+        }
+
         if(d.success) {
-            if(d.errors && d.errors.length > 0) Swal.fire('Warning', 'Printed with issues:\n' + d.errors.join('\n'), 'warning');
-            else Swal.fire({title: 'Printed successfully', icon: 'success', timer: 1000, showConfirmButton: false});
-        } else { Swal.fire('Print Failed', d.message || d.error, 'error'); }
-    } catch(e) { Swal.fire('Error', 'Could not reach printer service.', 'error'); }
+            // 🌟 THE FIX: Tell the local POS memory that these items are locked!
+            if (type === 'kitchen') {
+                state.cart.forEach(item => { item.kitchen_printed = parseInt(item.qty); });
+                renderCart(); // Refresh the cart to apply the lock silently
+            }
+
+            if(d.errors && d.errors.length > 0) {
+                Swal.fire('Warning', 'Printed with issues:\n' + d.errors.join('\n'), 'warning');
+            } else {
+                Swal.fire({title: 'Sent & Locked!', icon: 'success', timer: 1500, showConfirmButton: false});
+            }
+            
+        } else { 
+            Swal.fire('Print Failed', d.message || d.error, 'error'); 
+        }
+    } catch(e) { 
+        Swal.fire('Error', e.message, 'error'); 
+    }
+    
     if (btn) { btn.innerHTML = oldText; btn.disabled = false; }
 };
 

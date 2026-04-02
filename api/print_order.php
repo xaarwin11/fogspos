@@ -138,19 +138,18 @@ try {
         'Store'   => $biz['store_name'] ?? "FogsTasa's Cafe",
         'Address' => $biz['store_address'] ?? '',
         'Phone'   => $biz['store_phone'] ?? '',
-        // NEW: Pass the TIN and Tax Status to the Printer Service!
         'TIN'       => $biz['store_tin'] ?? '',
         'TaxStatus' => $biz['tax_status'] ?? 'NON-VAT Reg.',
-        // --------------------------------------------------------
         'Type'    => strtoupper($order_meta['order_type'] ?? 'DINE_IN'),
         'Table'   => $order_meta['table_number'] ?? '',
         'Staff'   => $_SESSION['username'] ?? 'Staff',
-        'Date'    => date('M d, Y h:i A'),
+        'Date'    => date('M d, Y h:i A'), // Current time for the Bill!
         'Ref'     => $order_meta['reference'],
         'Customer'=> $order_meta['customer_name'],
         'OrderDiscount' => (float)$order_meta['discount_total'],
         'OrderDiscountNote' => $order_meta['discount_note'],
         'DiscountLabel' => $discount_label,
+        'Tip'     => 0, // No tip on the Bill!
         'SC_Records' => $sc_records,
         'SC_ItemCount' => $sc_item_count,
         'SC_ItemTotal' => $sc_item_total,
@@ -159,6 +158,14 @@ try {
     ];
 
     if ($type === 'receipt') {
+        // 1. OVERRIDE the Date: Use the exact time they paid instead of the current time
+        $print_time = !empty($order_meta['paid_at']) ? strtotime($order_meta['paid_at']) : time();
+        $meta['Date'] = date('M d, Y h:i A', $print_time);
+        
+        // 2. ONLY attach the tip if this is an actual Receipt
+        $meta['Tip'] = (float)($order_meta['tip_amount'] ?? 0);
+
+        // 3. Fetch Payments
         $pay_res = $mysqli->query("SELECT GROUP_CONCAT(DISTINCT method SEPARATOR ', ') as methods, SUM(amount) as tendered, SUM(change_given) as chg FROM payments WHERE order_id = $order_id");
         if ($pay = $pay_res->fetch_assoc()) {
             $meta['Tendered'] = (float)$pay['tendered'];

@@ -29,16 +29,13 @@ try {
     $mysqli = get_db_conn();
     $mysqli->begin_transaction();
 
-    $o_stmt = $mysqli->prepare("SELECT grand_total, status FROM orders WHERE id = ? FOR UPDATE");
+    $o_stmt = $mysqli->prepare("SELECT grand_total, status, tip_amount FROM orders WHERE id = ? FOR UPDATE");
     $o_stmt->bind_param('i', $order_id);
     $o_stmt->execute();
     $order = $o_stmt->get_result()->fetch_assoc();
     $o_stmt->close();
 
-    // 🌟 FIX: Allow checkout for open, preparing, and ready orders!
-    if (!$order || !in_array($order['status'], ['open', 'preparing', 'ready'])) {
-        throw new Exception("Order is already closed or doesn't exist.");
-    }
+    if (!$order || $order['status'] !== 'open') throw new Exception("Order is already closed or doesn't exist.");
 
     if ($customer_name !== null) {
         $r_stmt = $mysqli->prepare("UPDATE orders SET customer_name = ? WHERE id = ?");
@@ -50,8 +47,11 @@ try {
     $paid_stmt = $mysqli->prepare("SELECT COALESCE(SUM(amount - change_given), 0) as paid FROM payments WHERE order_id = ?");
     $paid_stmt->bind_param('i', $order_id);
     $paid_stmt->execute();
-    $already_paid = (float)$paid_stmt->get_result()->fetch_assoc()['paid'];
+    $already_paid_raw = (float)$paid_stmt->get_result()->fetch_assoc()['paid'];
     $paid_stmt->close();
+
+    // 🌟 FIX: Subtract any existing tip from the raw paid amount to find what actually went towards the food
+    $already_paid = max(0, $already_paid_raw - (float)$order['tip_amount']);
 
     $balance = (float)$order['grand_total'] - $already_paid;
     if ($balance <= 0) throw new Exception("Order is already fully paid.");
