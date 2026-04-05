@@ -251,8 +251,9 @@ class PrinterService
             }
         }
 
-        if ($global_discount > 0) {
-            if ($is_sc_pwd && isset($meta['SC_ItemCount']) && $meta['SC_ItemCount'] > 0) {
+        // 🌟 CHANGED THIS LINE: Now triggers if it's != 0 (handles normal discounts AND round-ups)
+        if ($global_discount != 0) {
+            if ($is_sc_pwd && isset($meta['SC_ItemCount']) && $meta['SC_ItemCount'] > 0 && $global_discount > 0) {
                 if ($meta['Reg_ItemCount'] > 0) {
                     $this->printer->text($this->columnize($meta['Reg_ItemCount'] . " Reg Item(s)", number_format($meta['Reg_ItemTotal'], 2)));
                 }
@@ -260,9 +261,13 @@ class PrinterService
                 $this->printer->text($this->columnize("Less " . mb_strtoupper((string)$meta['DiscountLabel'], 'UTF-8'), "-" . number_format($global_discount, 2)));
             } else {
                 $this->printer->text($this->columnize($itemCount . " Item(s)", number_format($total, 2)));
-                $this->printer->text($this->columnize(mb_strtoupper((string)$meta['DiscountLabel'], 'UTF-8'), "-" . number_format($global_discount, 2)));
+                
+                // 🌟 THE FIX: Flip the sign for the receipt display: if it's negative, print a "+" charge
+                $label = mb_strtoupper((string)$meta['DiscountLabel'], 'UTF-8');
+                $sign = $global_discount > 0 ? "-" : "+";
+                $this->printer->text($this->columnize($label, $sign . number_format(abs($global_discount), 2)));
             }
-            $total -= $global_discount;
+            $total -= $global_discount; // Math: 179 - (-1.00) = 180.00
         } else {
             $this->printer->text($this->columnize($itemCount . " Item(s)", number_format($total, 2)));
         }
@@ -285,7 +290,7 @@ class PrinterService
         $this->printer->setEmphasis(false);
         $this->printer->selectPrintMode(Printer::MODE_FONT_A); 
 
-        // --- NEW: Add the Staff Tip securely below the Grand Total ---
+        // --- Add the Staff Tip securely below the Grand Total ---
         if (isset($meta['Tip']) && $meta['Tip'] > 0) {
             $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
             $this->printer->setEmphasis(true);
@@ -296,7 +301,6 @@ class PrinterService
         if (isset($meta['Tendered']) && isset($meta['Change'])) {
             $this->printer->text(str_repeat("-", $this->charLimit) . "\n");
             
-            // Grab the actual payment method, default to CASH if empty, and make it uppercase!
             $methodLabel = !empty($meta['Method']) ? mb_strtoupper((string)$meta['Method'], 'UTF-8') : "CASH";
             
             $this->printer->text($this->columnize($methodLabel, number_format($meta['Tendered'], 2)));

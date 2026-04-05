@@ -353,28 +353,33 @@ window.renderCart = function() {
     document.getElementById('summaryArea').style.display = rawSubtotal > 0 ? 'block' : 'none';
 
     let discRow = document.getElementById('appliedDiscountRow');
-    if (totalCombinedDiscount > 0) {
+    if (totalCombinedDiscount !== 0) { // Changed to allow negative numbers
         let displayNote = 'Total Discount';
         if (state.discount_id) {
             const d = state.discounts.find(x => x.id == state.discount_id);
             if (d) displayNote = d.name + (d.type === 'percent' ? ` (${parseFloat(d.value)}%)` : '');
         } 
         else if (state.custom_discount.is_active && state.custom_discount.note) {
-            displayNote = "Custom: " + state.custom_discount.note;
+            displayNote = state.custom_discount.note.includes('Custom:') ? state.custom_discount.note : "Custom: " + state.custom_discount.note;
         } 
         else if (state.discount_note) {
             displayNote = state.discount_note;
         }
 
+        const isSurcharge = totalCombinedDiscount < 0;
+        const color = isSurcharge ? 'var(--brand)' : 'var(--danger)';
+        const amountDisplay = (isSurcharge ? '+₱' : '-₱') + Math.abs(totalCombinedDiscount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
         if (!discRow) {
             document.getElementById('summaryArea').insertAdjacentHTML('beforeend', `
-                <div id="appliedDiscountRow" class="math-row" style="display:flex; justify-content:space-between; font-size:0.9rem; color:var(--danger); margin-top:5px;">
+                <div id="appliedDiscountRow" class="math-row" style="display:flex; justify-content:space-between; font-size:0.9rem; color:${color}; margin-top:5px;">
                     <span id="txtDiscName" style="max-width:70%; text-overflow:ellipsis; white-space:nowrap; overflow:hidden;">${displayNote}</span>
-                    <span id="txtDiscAmount">-₱${totalCombinedDiscount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span id="txtDiscAmount">${amountDisplay}</span>
                 </div>`);
         } else {
+            discRow.style.color = color;
             document.getElementById('txtDiscName').innerText = displayNote;
-            document.getElementById('txtDiscAmount').innerText = '-₱' + totalCombinedDiscount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('txtDiscAmount').innerText = amountDisplay;
         }
     } else if (discRow) discRow.remove();
 };
@@ -775,41 +780,53 @@ window.applyDiscountPopup = async function() {
     });
     html += `</div>`;
 
-    html += `<button class="big-btn" style="background:#f59e0b; color:white;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Down)</button>`;
+    html += `<button class="big-btn" style="background:#f59e0b; color:white;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Up / Down)</button>`;
     html += `<button class="big-btn" style="background:var(--blue); color:white;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
     html += `<button class="big-btn" style="background:#dc2626; color:white;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
     
     Swal.fire({ title: 'Select Discount', html: html, showConfirmButton: false, showCancelButton: true });
 };
 
-window.exactTotalDiscountPopup = async function() {
-    Swal.close();
-    
-    // 🌟 THE FIX: Use the Grand Total, which ALREADY includes the Senior Discount!
-    const currentTotal = state.grand_total;
+    window.exactTotalDiscountPopup = async function() {
+        Swal.close();
+        const currentTotal = state.grand_total;
 
-    if (currentTotal <= 0) return Swal.fire('Error', 'Bill is already zero.', 'error');
+        if (currentTotal <= 0) return Swal.fire('Error', 'Bill is already zero.', 'error');
 
-    const { value: targetTotal } = await Swal.fire({
-        title: '🎯 Round Down Bill',
-        html: `
-            <div style="font-size:0.9rem; color:gray; margin-bottom:15px;">The current total (after all discounts) is <b>₱${currentTotal.toFixed(2)}</b>. What exact amount do you want to charge?</div>
-            <input type="number" id="et-val" class="search-bar" placeholder="e.g. 1500" step="0.01" style="font-size:2rem; text-align:center; height:70px; font-weight:bold; color:var(--brand-dark);">
-        `,
-        focusConfirm: false, showCancelButton: true, confirmButtonText: 'Apply Adjustment', confirmButtonColor: '#6B4226',
-        preConfirm: () => {
-            const val = parseFloat(document.getElementById('et-val').value);
-            if (isNaN(val) || val < 0) {
-                Swal.showValidationMessage('Please enter a valid amount.');
-                return false;
+        const { value: targetTotal } = await Swal.fire({
+            title: '🎯 Adjust Exact Total',
+            html: `
+                <div style="font-size:0.9rem; color:gray; margin-bottom:15px;">The current total is <b>₱${currentTotal.toFixed(2)}</b>. What exact amount do you want to charge?</div>
+                <input type="number" id="et-val" class="search-bar" placeholder="e.g. 180" step="0.01" style="font-size:2rem; text-align:center; height:70px; font-weight:bold; color:var(--brand-dark);">
+            `,
+            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Apply Adjustment', confirmButtonColor: '#6B4226',
+            preConfirm: () => {
+                const val = parseFloat(document.getElementById('et-val').value);
+                if (isNaN(val) || val < 0) {
+                    Swal.showValidationMessage('Please enter a valid amount.');
+                    return false;
+                }
+                return val; // <--- Restriction removed! It now allows higher numbers.
             }
-            if (val >= currentTotal) {
-                Swal.showValidationMessage('Amount must be lower than the current total (₱' + currentTotal.toFixed(2) + ')');
-                return false;
-            }
-            return val;
+        });
+
+        if (targetTotal !== undefined) {
+            // If 179 - 180 = -1. A negative discount tells the database it's a surcharge!
+            const discountToApply = currentTotal - targetTotal;
+            
+            state.custom_discount = { 
+                is_active: true, 
+                type: 'amount', 
+                val: discountToApply, 
+                target: 'all', 
+                note: targetTotal > currentTotal ? 'Round Up' : 'Round Down' 
+            };
+            
+            Swal.fire({title:'Adjusting...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            await saveOrder(true);
+            Swal.fire({title:'Applied', text: 'Bill adjusted to ₱' + targetTotal.toFixed(2), icon:'success', timer: 1000, showConfirmButton: false});
         }
-    });
+    };
 
     if (targetTotal !== undefined) {
         const discountToApply = currentTotal - targetTotal;
@@ -1437,7 +1454,6 @@ window.transferTablePopup = async function() {
     const r = await fetch('../api/get_tables.php');
     const tables = await r.json();
     
-    // 📱 MOBILE CSS INJECTED HERE
     let html = `
     <style>
         .table-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -1448,18 +1464,66 @@ window.transferTablePopup = async function() {
     </style>
     <div class="table-grid">`;
     
-    let hasAvailable = false;
+    let hasOtherTables = false;
     tables.forEach(t => {
-        if (t.status === 'available') {
-            hasAvailable = true;
-            html += `<div style="padding:15px 5px; border-radius:8px; cursor:pointer; font-weight:bold; background:#f0fdf4; border:1px solid #bbf7d0; color:var(--brand-dark);" onclick="executeTransfer(${t.id}, '${t.table_number}')">${t.table_number}</div>`;
+        // Show ALL tables except the one the customer is currently sitting at
+        if (t.id != state.activeTableId) { 
+            hasOtherTables = true;
+            
+            // Color code occupied vs available
+            let isOcc = t.status === 'occupied';
+            let bg = isOcc ? '#fff0f0' : '#f0fdf4';
+            let border = isOcc ? '#fecaca' : '#bbf7d0';
+            let color = isOcc ? '#dc2626' : 'var(--brand-dark)';
+            let subText = isOcc ? '<div style="font-size:0.75rem; font-weight:normal; margin-top:2px;">Occupied (Join)</div>' : '<div style="font-size:0.75rem; font-weight:normal; margin-top:2px; color:gray;">Empty</div>';
+
+            html += `<div style="padding:15px 5px; border-radius:8px; cursor:pointer; font-weight:bold; background:${bg}; border:1px solid ${border}; color:${color};" onclick="executeTransfer(${t.id}, '${t.table_number}', ${isOcc})">${t.table_number}${subText}</div>`;
         }
     });
     html += '</div>';
 
-    if (!hasAvailable) return Swal.fire('No Tables', 'All other tables are currently occupied!', 'info');
+    if (!hasOtherTables) return Swal.fire('No Tables', 'There are no other tables in the system.', 'info');
 
     Swal.fire({ title: 'Move to which table?', html: html, showConfirmButton: false, showCancelButton: true });
+};
+
+window.executeTransfer = async function(newTableId, newTableNum, isOccupied) {
+    // 🌟 Safety Check: If joining an occupied table, confirm they want to create a sub-check!
+    if (isOccupied) {
+        const { isConfirmed } = await Swal.fire({
+            title: 'Join Occupied Table?',
+            html: `Table ${newTableNum} is already occupied.<br><br>This will move the current bill over as a <b>separate Sub-Check</b>.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Join Table',
+            confirmButtonColor: '#6B4226'
+        });
+        if (!isConfirmed) return window.transferTablePopup(); // Re-open table map if canceled
+    }
+
+    Swal.fire({title:'Moving...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    try {
+        const res = await fetch('../api/transfer_table.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({ order_id: state.activeOrderId, new_table_id: newTableId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            state.activeTableId = newTableId;
+            
+            // Adjust the top label so they know it worked
+            let nameDisplay = isOccupied ? data.new_table_name + ' (Sub-Check)' : data.new_table_name;
+            if (state.customer_name) nameDisplay += ' - ' + state.customer_name;
+            
+            document.getElementById('tableName').innerText = nameDisplay;
+            Swal.fire({icon: 'success', title: 'Moved successfully!', timer: 1000, showConfirmButton: false});
+        } else {
+            Swal.fire('Error', data.error, 'error');
+        }
+    } catch (e) {
+        Swal.fire('Error', 'Failed to transfer table.', 'error');
+    }
 };
 
 window.executeTransfer = async function(newTableId, newTableNum) {
