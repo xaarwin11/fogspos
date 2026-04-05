@@ -219,8 +219,11 @@ try {
             } catch (Exception $e) { $printer_errors[] = "Bar: " . $e->getMessage(); }
         }
 
-        $mysqli->query("UPDATE order_items SET kitchen_printed = quantity WHERE order_id = $order_id");
-
+        // 🌟 FIX: Only lock the items in the database if the printers actually succeeded!
+        if (empty($printer_errors)) {
+            $mysqli->query("UPDATE order_items SET kitchen_printed = quantity WHERE order_id = $order_id");
+        }
+        
     } else {
         try {
             $conf = getPrinterConfig($mysqli, 'route_receipt');

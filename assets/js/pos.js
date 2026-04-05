@@ -787,7 +787,7 @@ window.applyDiscountPopup = async function() {
     Swal.fire({ title: 'Select Discount', html: html, showConfirmButton: false, showCancelButton: true });
 };
 
-    window.exactTotalDiscountPopup = async function() {
+window.exactTotalDiscountPopup = async function() {
         Swal.close();
         const currentTotal = state.grand_total;
 
@@ -827,24 +827,6 @@ window.applyDiscountPopup = async function() {
             Swal.fire({title:'Applied', text: 'Bill adjusted to ₱' + targetTotal.toFixed(2), icon:'success', timer: 1000, showConfirmButton: false});
         }
     };
-
-    if (targetTotal !== undefined) {
-        const discountToApply = currentTotal - targetTotal;
-        
-        // WE DO NOT NULLIFY state.discount_id ANYMORE! Let it stack!
-        state.custom_discount = { 
-            is_active: true, 
-            type: 'amount', 
-            val: discountToApply, 
-            target: 'all', 
-            note: 'Round Off' 
-        };
-        
-        Swal.fire({title:'Adjusting...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-        await saveOrder(true);
-        Swal.fire({title:'Applied', text: 'Bill rounded down to ₱' + targetTotal.toFixed(2), icon:'success', timer: 1000, showConfirmButton: false});
-    }
-};
 
 window.customOrderDiscount = async function() {
     Swal.close();
@@ -1030,6 +1012,12 @@ let isSaving = false;
 window.saveOrder = async function(silent = false, voidReason = null) {
     if (isSaving) return;
     if (state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
+    // Add this right after the empty cart check:
+    Swal.fire({
+        title: 'Processing...', 
+        allowOutsideClick: false, 
+        didOpen: () => { Swal.showLoading(); }
+    });
     isSaving = true;
 
     const payload = {
@@ -1247,6 +1235,12 @@ window.addTendered = function(amount) {
 
 window.checkout = async function(prefillAmount = null, selectedItems = null) {
     if (state.cart.length === 0) return Swal.fire('Empty', 'Nothing to charge!', 'warning');
+    // Add this right after the empty cart check:
+    Swal.fire({
+        title: 'Processing...', 
+        allowOutsideClick: false, 
+        didOpen: () => { Swal.showLoading(); }
+    });
     if (prefillAmount === null) { await window.saveOrder(true); }
     if (!state.activeOrderId) return; 
 
@@ -1406,6 +1400,12 @@ window.printOrder = async function(type, event) {
     }
 
     if (!state.activeOrderId) return Swal.fire('Error', 'Please save the order first before printing.', 'warning');
+    // Add this right after the empty cart check:
+    Swal.fire({
+        title: 'Processing...', 
+        allowOutsideClick: false, 
+        didOpen: () => { Swal.showLoading(); }
+    });
     
     const btn = event ? event.currentTarget : null;
     let oldText = "";
@@ -1425,18 +1425,24 @@ window.printOrder = async function(type, event) {
         }
 
         if(d.success) {
-            // 🌟 THE FIX: Tell the local POS memory that these items are locked!
-            if (type === 'kitchen') {
-                state.cart.forEach(item => { item.kitchen_printed = parseInt(item.qty); });
-                renderCart(); // Refresh the cart to apply the lock silently
-            }
-
+            // Check for Ghost Printer Errors first!
             if(d.errors && d.errors.length > 0) {
-                Swal.fire('Warning', 'Printed with issues:\n' + d.errors.join('\n'), 'warning');
+                // 🚨 PRINTER FAILED: Warn the user, and DO NOT lock the items!
+                Swal.fire({
+                    title: 'Printer Error!', 
+                    text: 'The order saved, but printing failed:\n\n' + d.errors.join('\n\n'), 
+                    icon: 'error',
+                    confirmButtonText: 'Okay',
+                    confirmButtonColor: '#dc2626'
+                });
             } else {
+                // ✅ PRINTER WORKED: Now we can safely lock the cart on the screen!
+                if (type === 'kitchen') {
+                    state.cart.forEach(item => { item.kitchen_printed = parseInt(item.qty); });
+                    renderCart(); 
+                }
                 Swal.fire({title: 'Sent & Locked!', icon: 'success', timer: 1500, showConfirmButton: false});
             }
-            
         } else { 
             Swal.fire('Print Failed', d.message || d.error, 'error'); 
         }
