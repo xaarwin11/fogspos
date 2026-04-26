@@ -34,7 +34,8 @@ try {
         $stmt_top->close();
     }
     
-    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales, COALESCE(SUM(discount_total), 0) as total_discounts, COALESCE(SUM(tip_amount), 0) as total_tips FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {        $stmt1->bind_param('s', $date);
+    if ($stmt1 = $mysqli->prepare("SELECT COUNT(*) as total_orders, COALESCE(SUM(grand_total), 0) as total_sales, COALESCE(SUM(discount_total), 0) as total_discounts, COALESCE(SUM(tip_amount), 0) as total_tips FROM orders WHERE DATE(paid_at) = ? AND status = 'paid'")) {        
+        $stmt1->bind_param('s', $date);
         $stmt1->execute();
         $sales = $stmt1->get_result()->fetch_assoc();
         $stmt1->close();
@@ -54,6 +55,7 @@ try {
         $stmt_shift->close();
     }
 
+    // THE FIX: Selecting reference and paid_at
     if ($stmt3 = $mysqli->prepare("SELECT o.*, t.table_number FROM orders o LEFT JOIN tables t ON o.table_id = t.id WHERE DATE(COALESCE(o.paid_at, o.created_at)) = ? ORDER BY COALESCE(o.paid_at, o.created_at) DESC")) {
         $stmt3->bind_param('s', $date);
         $stmt3->execute();
@@ -107,7 +109,7 @@ try {
         .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
         .status-paid { background: #dcfce7; color: #166534; }
         .status-open { background: #fef9c3; color: #c2410c; }
-        .status-pending { background: #fef08a; color: #854d0e; } /* ADDED PENDING STATUS COLOR */
+        .status-pending { background: #fef08a; color: #854d0e; }
         .status-preparing { background: #dbeafe; color: #1e3a8a; }
         .status-ready { background: #e0e7ff; color: #3730a3; }
         .status-voided, .status-refunded { background: #fee2e2; color: #b91c1c; }
@@ -237,8 +239,28 @@ try {
                                     $warning_color = (in_array($o['status'], ['open', 'pending']) && $minutes_open > 45) ? 'color:#dc2626; font-weight:900;' : 'font-weight:600;';
                                 ?>
                                 <tr>
-                                    <td style="color:var(--brand-dark); font-weight:bold;">#<?= $o['id'] ?></td>
-                                    <td style="color:var(--text-muted); font-size:0.9rem;"><b><?= date('h:i A', strtotime($o['created_at'])) ?></b></td>
+                                    <td style="color:var(--brand-dark); font-weight:bold; font-size:1.1rem;">
+                                        <?php if(!empty($o['reference'])): ?>
+                                            <?php if(strpos($o['reference'], 'WEB-') === 0): ?>
+                                                <span style="background:#dc2626; color:white; padding:3px 6px; border-radius:6px; font-size:0.7rem; vertical-align:middle; margin-right:4px;">WEB</span>
+                                                <?= htmlspecialchars(str_replace('WEB-', '', $o['reference'])) ?>
+                                            <?php else: ?>
+                                                #<?= htmlspecialchars($o['reference']) ?>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            #<?= $o['id'] ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    
+                                    <td style="color:var(--text-muted); font-size:0.9rem;">
+                                        <b><?= date('h:i A', strtotime($o['paid_at'] ?? $o['created_at'])) ?></b>
+                                        <?php if($o['paid_at']): ?>
+                                            <div style="font-size:0.7rem; color:#16a34a; margin-top:2px; font-weight:bold;">Paid</div>
+                                        <?php else: ?>
+                                            <div style="font-size:0.7rem; color:#d97706; margin-top:2px; font-weight:bold;">Opened</div>
+                                        <?php endif; ?>
+                                    </td>
+                                    
                                     <td style="text-transform:capitalize; <?= $warning_color ?>">
                                         <?= $o['order_type'] === 'takeout' ? '🥡 Takeout' : '🍽️ Table ' . htmlspecialchars($o['table_number'] ?? 'N/A') ?>
                                         <?php if(in_array($o['status'], ['open', 'pending']) && $minutes_open > 45) echo "<br><small style='color:#dc2626;'>Waiting {$minutes_open}m!</small>"; ?>
@@ -511,7 +533,6 @@ try {
             }
         }
 
-        // --- NEW TIP FUNCTION ---
         async function addTip(orderId) {
             Swal.close();
             const { value: tipAmount } = await Swal.fire({
@@ -545,7 +566,7 @@ try {
             }
         }
 
-        // --- RECEIPT WITH TIP DISPLAY ---
+        // --- THE UPGRADED RECEIPT DISPLAY ---
         async function viewOrderDetails(orderId) {
             try {
                 Swal.fire({title: 'Loading Receipt...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
@@ -565,23 +586,31 @@ try {
                             <p style="margin: 2px 0 0 0; font-size: 0.8rem; font-weight: bold; color:var(--text-muted);">San Esteban, Ilocos Sur</p>
                          </div>`;
                 
-                // Order Info
-                html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Order:</span> <span style="font-weight:900;">#${o.id}</span></div>`;
-                if (o.reference && o.reference.startsWith('WEB-')) {
-                    html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Ref:</span> <span style="font-weight:bold;">${o.reference}</span></div>`;
-                }
-                html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Opened:</span> <span>${new Date(o.created_at).toLocaleString()}</span></div>`;
+                // 🌟 THE FIX: REFERENCE INJECTION!
+                let displayRef = o.reference ? o.reference : o.id;
+                let isWeb = o.reference && o.reference.startsWith('WEB-');
                 
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                            <span>Order Ref:</span> 
+                            <span style="font-weight:900; ${isWeb ? 'color:#dc2626;' : ''}">${isWeb ? '🌐 ' : '#'}${displayRef}</span>
+                         </div>`;
+                
+                // 🌟 THE FIX: SMART TIMESTAMPS
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Opened:</span> <span>${new Date(o.created_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span></div>`;
+                
+                if (o.paid_at) {
+                    html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Paid:</span> <span style="font-weight:bold; color:#16a34a;">${new Date(o.paid_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span></div>`;
+                }
+
                 html += `<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Type:</span> <span style="font-weight:bold;">${o.order_type.toUpperCase()} ${o.table_number ? '(T-'+o.table_number+')' : ''}</span></div>`;
                 
-                // Only show Customer Name IF one actually exists in the database
-                if (o.customer_name && o.customer_name.trim() !== '') {
+                // 🌟 THE FIX: HIDE EMPTY NAMES
+                if (o.customer_name && o.customer_name.trim() !== '' && o.customer_name.toLowerCase() !== 'guest') {
                     html += `<div style="display:flex; justify-content:space-between; margin-top: 8px; padding-top: 8px; border-top: 1px dotted #cbd5e1; margin-bottom:15px;">
                                 <span>Customer:</span> 
                                 <span style="font-weight:900; font-size:1.1rem; text-transform:uppercase; color:var(--brand-dark);">${o.customer_name}</span>
                              </div>`;
                 } else {
-                    // Just add a little spacing if there is no name row
                     html += `<div style="margin-top: 15px;"></div>`;
                 }
                          
@@ -651,13 +680,11 @@ try {
                     });
                 }
 
-                // SHOW TIP
                 if (parseFloat(o.tip_amount) > 0) {
                     html += `<div style="border-top:1px dashed #94a3b8; margin:15px 0;"></div>`;
                     html += `<div style="display:flex; justify-content:space-between; font-weight:bold; color:#16a34a; font-size:1.1rem;"><span>Staff Tip:</span> <span>₱${parseFloat(o.tip_amount).toFixed(2)}</span></div>`;
                 }
 
-                // TIP BUTTON FOR PAID ORDERS
                 if (o.status === 'paid') {
                      html += `
                      <div style="margin-top:20px;">
