@@ -39,24 +39,32 @@ try {
         $order_id = $mysqli->insert_id;
         $stmt->close();
         
-        // 🌟 THE FIX: Monthly Resetting Reference Number
+        // 🌟 THE FIX: Monthly Resetting Reference Number (Format: 2604XXX)
         $current_ym = date('ym'); // Gets "2604" for April 2026
         
-        // Look for the last reference number generated this month
-        $ref_stmt = $mysqli->prepare("SELECT reference FROM orders WHERE reference LIKE CONCAT(?, '%') AND id != ? ORDER BY id DESC LIMIT 1");
+        // Look for the last reference number generated THIS month specifically
+        $ref_stmt = $mysqli->prepare("
+            SELECT reference 
+            FROM orders 
+            WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+              AND YEAR(created_at) = YEAR(CURRENT_DATE())
+              AND reference LIKE CONCAT(?, '%')
+              AND id != ? 
+            ORDER BY id DESC LIMIT 1
+        ");
         $ref_stmt->bind_param('si', $current_ym, $order_id);
         $ref_stmt->execute();
         $ref_res = $ref_stmt->get_result();
         
-        $sequence = 1; // If no orders this month, start at 1
+        $sequence = 0; // Start at 000
         if ($row = $ref_res->fetch_assoc()) {
-            // Grab the last 3 digits of the previous order and add 1
+            // Strip the first 4 digits (the year+month "2604") and add 1
             $last_seq = (int)substr($row['reference'], 4);
             $sequence = $last_seq + 1;
         }
         $ref_stmt->close();
         
-        // Combine them: 2604 + 001 = 2604001
+        // Combine them: 2604 + 000 = 2604000
         $ref_number = $current_ym . str_pad($sequence, 3, '0', STR_PAD_LEFT);
         
         $r_stmt = $mysqli->prepare("UPDATE orders SET reference = ? WHERE id = ?");
