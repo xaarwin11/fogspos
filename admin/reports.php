@@ -207,18 +207,81 @@ foreach ($timesheets as $t) {
                 </div>
             </div>
 
-            <div class="report-section">
-                <h2>💳 Payment Methods</h2>
-                <div style="display:flex; gap:30px; flex-wrap:wrap;">
-                    <?php foreach($payments as $p): ?>
-                        <div style="background:#f9fafb; padding:15px 25px; border-radius:8px; border:1px solid #eee; min-width:200px;">
-                            <div style="text-transform:uppercase; font-size:0.85rem; color:gray; font-weight:bold; margin-bottom:5px;">
-                                <?= $p['method'] === 'cash' ? '💵' : '📱' ?> <?= $p['method'] ?>
+            <div class="charts-grid no-print">
+                <div class="report-section" style="margin-bottom:0;">
+                    <h2>📈 Daily Sales Trend</h2>
+                    <canvas id="salesChart" height="100"></canvas>
+                </div>
+                <div class="report-section" style="margin-bottom:0;">
+                    <h2>🍕 Category Distribution</h2>
+                    <canvas id="categoryChart" height="200"></canvas>
+                </div>
+            </div>
+
+            <div class="bento-grid">
+                <div class="report-section" style="margin-bottom:0;">
+                    <h2>💳 Payment Methods</h2>
+                    <div style="display:flex; flex-direction:column; gap:15px;">
+                        <?php foreach($payments as $p): ?>
+                            <div style="background:#f9fafb; padding:15px; border-radius:8px; border:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                                <div style="text-transform:uppercase; font-size:0.9rem; color:gray; font-weight:bold;">
+                                    <?= $p['method'] === 'cash' ? '💵' : '📱' ?> <?= $p['method'] ?>
+                                </div>
+                                <div style="font-size:1.3rem; font-weight:900; color:var(--brand-dark);">₱<?= number_format((float)$p['net_amount'], 2) ?></div>
                             </div>
-                            <div style="font-size:1.5rem; font-weight:900; color:var(--brand-dark);">₱<?= number_format((float)$p['net_amount'], 2) ?></div>
+                        <?php endforeach; ?>
+                        <?php if(empty($payments)) echo "<div style='color:gray; padding:20px 0;'>No payments found for this period.</div>"; ?>
+                    </div>
+                </div>
+
+                <div class="report-section" style="margin-bottom:0;">
+                    <h2>🔥 Top 10 Best Sellers</h2>
+                    <div>
+                        <?php foreach($top_items as $idx => $ti): ?>
+                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; border-bottom:1px dashed #f1f5f9; padding-bottom:8px;">
+                            <div style="width:28px; height:28px; background:<?= $idx===0?'#fef08a':($idx===1?'#e2e8f0':'#ffedd5') ?>; color:<?= $idx===0?'#854d0e':($idx===1?'#475569':'#9a3412') ?>; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:0.85rem; flex-shrink:0;">
+                                <?= $idx + 1 ?>
+                            </div>
+                            <div style="flex:1; overflow:hidden;">
+                                <div style="font-weight:bold; color:var(--text-main); font-size:0.95rem; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;"><?= htmlspecialchars($ti['product_name']) ?></div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;"><?= $ti['qty_sold'] ?> Units Sold</div>
+                            </div>
+                            <div style="font-weight:900; color:var(--brand); font-size:1.05rem;">₱<?= number_format($ti['total_revenue'], 2) ?></div>
                         </div>
-                    <?php endforeach; ?>
-                    <?php if(empty($payments)) echo "<div style='color:gray;'>No payments found for this period.</div>"; ?>
+                        <?php endforeach; ?>
+                        <?php if(empty($top_items)) echo "<div style='text-align:center; color:gray; font-weight:bold; padding:20px 0;'>No data available.</div>"; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="report-section full-width">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                    <h2 style="margin:0; border:none; padding:0;">📦 Full Product Sales & Item Lookup</h2>
+                    <input type="text" id="singleItemSearch" class="search-input no-print" placeholder="🔍 Search for a specific item..." onkeyup="filterItems()">
+                </div>
+                
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table class="data-table" id="itemsTable">
+                        <thead>
+                            <tr>
+                                <th>Product Name</th>
+                                <th style="text-align:center;">Total Qty Sold</th>
+                                <th style="text-align:right;">Total Revenue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach($all_items as $item): ?>
+                            <tr>
+                                <td style="font-weight:bold; color:var(--text-main);"><?= htmlspecialchars($item['product_name']) ?></td>
+                                <td style="text-align:center; font-weight:bold; color:var(--brand);"><?= $item['qty_sold'] ?></td>
+                                <td style="text-align:right; font-weight:bold; color:#10b981;">₱<?= number_format($item['total_revenue'], 2) ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <?php if(empty($all_items)): ?>
+                                <tr><td colspan="3" style="text-align:center; color:gray; padding:20px;">No items sold in this date range.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
