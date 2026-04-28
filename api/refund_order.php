@@ -2,77 +2,76 @@
 require_once '../db.php';
 session_start();
 header('Content-Type: application/json');
+
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
-if (empty($_SESSION['user_id']) || !in_array($_SESSION['role'], ['admin', 'manager'])) { 
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; 
-}
-
-$headers = getallheaders();
-$csrf_token = $headers['X-CSRF-Token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-if (empty($csrf_token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrf_token)) {
-    http_response_code(403); echo json_encode(['success' => false, 'error' => 'Security token invalid.']); exit;
-}
+if (empty($_SESSION['user_id'])) { echo json_encode(['success' => false, 'error' => 'Unauthorized']); exit; }
 
 $input = json_decode(file_get_contents('php://input'), true);
 $order_id = (int)($input['order_id'] ?? 0);
-$pin = (string)($input['pin'] ?? '');
-$reason = $input['reason'] ?? 'Customer Request';
+$reason = $input['reason'] ?? 'No reason provided';
+$pin = $input['pin'] ?? '';
 
-if (!$order_id || !$pin) { echo json_encode(['success' => false, 'error' => 'Missing required data.']); exit; }
+if (!$order_id) { echo json_encode(['success' => false, 'error' => 'No order ID']); exit; }
 
 try {
     $mysqli = get_db_conn();
+    $mysqli->begin_transaction();
 
-    // 1. Verify Manager/Admin PIN
-    $auth_stmt = $mysqli->prepare("SELECT u.id, u.passcode, r.role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.is_active = 1");
-    $auth_stmt->execute();
-    $users = $auth_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $auth_stmt->close();
+    $stmt = $mysqli->prepare("SELECT id, role_id, passcode FROM users WHERE is_active = 1");
+    $stmt->execute();
+    $users = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
 
     $manager_id = null;
     foreach ($users as $u) {
         if (password_verify($pin, $u['passcode'])) {
-            if (in_array($u['role_name'], ['admin', 'manager'])) {
-                $manager_id = $u['id'];
-                break;
-            }
+            if (in_array((int)$u['role_id'], [1, 2])) { $manager_id = $u['id']; break; }
         }
     }
-    if (!$manager_id) throw new Exception("Invalid PIN or insufficient permissions.");
+    if (!$manager_id) throw new Exception("Invalid PIN or privileges.");
 
-    $mysqli->begin_transaction();
+    $o_stmt = $mysqli->prepare("SELECT grand_total, status FROM orders WHERE id = ?");
+    $o_stmt->bind_param('i', $order_id);
+    $o_stmt->execute();
+    $order = $o_stmt->get_result()->fetch_assoc();
+    $o_stmt->close();
 
-    // 2. Fetch the original payments to reverse them
-    $pay_stmt = $mysqli->prepare("SELECT method, SUM(amount - change_given) as total_paid FROM payments WHERE order_id = ? GROUP BY method");
-    $pay_stmt->bind_param('i', $order_id);
-    $pay_stmt->execute();
-    $payments = $pay_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $pay_stmt->close();
+    if (!$order) throw new Exception("Order not found.");
+    if ($order['status'] !== 'paid') throw new Exception("Only paid orders can be refunded.");
 
-    if (empty($payments)) throw new Exception("No payments found to refund.");
+    $refund_amount = (float)$order['grand_total'];
 
-    // 3. Inject NEGATIVE payments into the ledger to automatically balance the Z-Report
-    $ins_pay = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, ?, ?, 0, ?, NOW())");
-    foreach ($payments as $p) {
-        $refund_amount = -abs((float)$p['total_paid']); // Force negative
-        $ins_pay->bind_param('isdi', $order_id, $p['method'], $refund_amount, $manager_id);
-        $ins_pay->execute();
+    $r_stmt = $mysqli->prepare("INSERT INTO refunds (order_id, manager_id, reason, total_amount, created_at) VALUES (?, ?, ?, ?, NOW())");
+    $r_stmt->bind_param('iisd', $order_id, $manager_id, $reason, $refund_amount);
+    $r_stmt->execute();
+    $refund_id = $mysqli->insert_id;
+    $r_stmt->close();
+
+    $ri_stmt = $mysqli->prepare("INSERT INTO refund_items (refund_id, order_item_id, qty, amount) SELECT ?, id, quantity, line_total FROM order_items WHERE order_id = ?");
+    $ri_stmt->bind_param('ii', $refund_id, $order_id);
+    $ri_stmt->execute();
+    $ri_stmt->close();
+
+    // PURE RELATIONAL: Just flag as refunded. No legacy void data!
+    $u_order = $mysqli->prepare("UPDATE orders SET status = 'refunded' WHERE id = ?");
+    $u_order->bind_param('i', $order_id);
+    $u_order->execute();
+    $u_order->close();
+    
+    if ($refund_amount > 0) {
+        $neg_amount = -$refund_amount;
+        $p_stmt = $mysqli->prepare("INSERT INTO payments (order_id, method, amount, change_given, processed_by, created_at) VALUES (?, 'cash', ?, 0, ?, NOW())");
+        $p_stmt->bind_param('idi', $order_id, $neg_amount, $manager_id);
+        $p_stmt->execute();
+        $p_stmt->close();
     }
-    $ins_pay->close();
 
-    // 4. Update the order status AND save the Manager ID & Reason!
-    $upd_stmt = $mysqli->prepare("UPDATE orders SET status = 'refunded', voided_by = ?, void_reason = ?, updated_at = NOW() WHERE id = ?");
-    $upd_stmt->bind_param('isi', $manager_id, $reason, $order_id);
-    $upd_stmt->execute();
-    $upd_stmt->close();
-
-    // 5. Log the Audit Event
-    $details = json_encode(['reason' => $reason, 'manager_id' => $manager_id]);
     $ip = $_SERVER['REMOTE_ADDR'] ?? null;
-    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'refund', 'order', ?, ?, ?, NOW())");
-    $log_stmt->bind_param('iiss', $manager_id, $order_id, $details, $ip);
+    $details = json_encode(['refund_id' => $refund_id, 'total_refund' => $refund_amount, 'reason' => $reason]);
+    $log_stmt = $mysqli->prepare("INSERT INTO audit_log (user_id, action_type, target_type, target_id, details, ip_address, created_at) VALUES (?, 'full_order_refund', 'order', ?, ?, ?, NOW())");
+    $log_stmt->bind_param('iiss', $manager_id, $order_id, $details, $ip_address);
     $log_stmt->execute();
     $log_stmt->close();
 

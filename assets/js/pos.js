@@ -32,18 +32,24 @@ window.addOpenItem = async function() {
     const { value: formValues } = await Swal.fire({
         title: '⭐ Custom Item',
         html: `
+            <style>
+                .c-item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+                @media (max-width: 500px) {
+                    .c-item-grid { grid-template-columns: 1fr; gap: 5px; }
+                }
+            </style>
             <div style="background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee; margin-bottom:15px; text-align:left;">
                 <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Item Name</label>
                 <input type="text" id="oi-name" class="search-bar" placeholder="e.g. Special Pasta Tray" style="margin-bottom:15px; border:2px solid var(--brand); font-weight:bold;">
                 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div class="c-item-grid">
                     <div>
                         <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Unit Price (₱)</label>
-                        <input type="number" id="oi-price" class="search-bar" placeholder="0.00" step="0.01" style="margin-bottom:0; font-weight:bold; color:var(--brand-dark); font-size:1.2rem;">
+                        <input type="number" id="oi-price" class="search-bar" placeholder="0.00" step="0.01" style="margin-bottom:10px; font-weight:bold; color:var(--brand-dark); font-size:1.2rem;">
                     </div>
                     <div>
                         <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Quantity</label>
-                        <input type="number" id="oi-qty" class="search-bar" value="1" min="1" style="margin-bottom:0; font-weight:bold; font-size:1.2rem; text-align:center;">
+                        <input type="number" id="oi-qty" class="search-bar" value="1" min="1" style="margin-bottom:10px; font-weight:bold; font-size:1.2rem; text-align:center;">
                     </div>
                 </div>
             </div>
@@ -347,61 +353,159 @@ window.renderCart = function() {
     document.getElementById('summaryArea').style.display = rawSubtotal > 0 ? 'block' : 'none';
 
     let discRow = document.getElementById('appliedDiscountRow');
-    if (totalCombinedDiscount > 0) {
+    if (totalCombinedDiscount !== 0) { // Changed to allow negative numbers
         let displayNote = 'Total Discount';
         if (state.discount_id) {
             const d = state.discounts.find(x => x.id == state.discount_id);
             if (d) displayNote = d.name + (d.type === 'percent' ? ` (${parseFloat(d.value)}%)` : '');
         } 
         else if (state.custom_discount.is_active && state.custom_discount.note) {
-            displayNote = "Custom: " + state.custom_discount.note;
+            displayNote = state.custom_discount.note.includes('Custom:') ? state.custom_discount.note : "Custom: " + state.custom_discount.note;
         } 
         else if (state.discount_note) {
             displayNote = state.discount_note;
         }
 
+        const isSurcharge = totalCombinedDiscount < 0;
+        const color = isSurcharge ? 'var(--brand)' : 'var(--danger)';
+        const amountDisplay = (isSurcharge ? '+₱' : '-₱') + Math.abs(totalCombinedDiscount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
         if (!discRow) {
             document.getElementById('summaryArea').insertAdjacentHTML('beforeend', `
-                <div id="appliedDiscountRow" class="math-row" style="display:flex; justify-content:space-between; font-size:0.9rem; color:var(--danger); margin-top:5px;">
+                <div id="appliedDiscountRow" class="math-row" style="display:flex; justify-content:space-between; font-size:0.9rem; color:${color}; margin-top:5px;">
                     <span id="txtDiscName" style="max-width:70%; text-overflow:ellipsis; white-space:nowrap; overflow:hidden;">${displayNote}</span>
-                    <span id="txtDiscAmount">-₱${totalCombinedDiscount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span id="txtDiscAmount">${amountDisplay}</span>
                 </div>`);
         } else {
+            discRow.style.color = color;
             document.getElementById('txtDiscName').innerText = displayNote;
-            document.getElementById('txtDiscAmount').innerText = '-₱' + totalCombinedDiscount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('txtDiscAmount').innerText = amountDisplay;
         }
     } else if (discRow) discRow.remove();
 };
 
 window.updateQty = function(idx, delta) {
-    const newQty = state.cart[idx].qty + delta;
+    const item = state.cart[idx];
+    const newQty = item.qty + delta;
     
-    // FIX 3: Prompt for deletion if quantity hits zero
-    if (newQty <= 0) {
-        Swal.fire({
-            title: 'Remove Item?', 
-            text: state.cart[idx].name, 
-            icon: 'warning',
-            showCancelButton: true, 
-            confirmButtonColor: '#d33', 
-            confirmButtonText: 'Yes, remove it'
-        }).then((res) => { 
-            if (res.isConfirmed) { 
-                state.cart.splice(idx, 1); 
-                renderCart(); 
-            } 
-        });
-    } else {
-        state.cart[idx].qty = newQty;
-        renderCart();
+    // THE MATH: Differentiate between printed and unprinted
+    const printed = parseInt(item.kitchen_printed) || 0;
+    const unprinted = item.qty - printed;
+
+    if (delta < 0) {
+        // They are reducing quantity. Do they have unprinted items?
+        if (unprinted > 0) {
+            // Yes! They can safely reduce the unprinted amount without a PIN
+            if (newQty <= 0) return confirmRemoveItem(idx); // Failsafe if it hits 0
+            state.cart[idx].qty = newQty;
+            renderCart();
+            return;
+        } else {
+            // Unprinted is 0. They are trying to reduce a PRINTED item! Pop the PIN!
+            return confirmRemoveItem(idx);
+        }
     }
+
+    // Normal behavior for increasing quantity (+)
+    state.cart[idx].qty = newQty;
+    renderCart();
 };
 
-window.confirmRemoveItem = function(idx) {
-    Swal.fire({
-        title: 'Remove Item?', text: state.cart[idx].name, icon: 'warning',
-        showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes'
-    }).then((res) => { if (res.isConfirmed) { state.cart.splice(idx, 1); renderCart(); } });
+window.confirmRemoveItem = async function(idx) {
+    const item = state.cart[idx];
+    const printed = parseInt(item.kitchen_printed) || 0;
+    const unprinted = item.qty - printed;
+
+    // 1. If NO items were printed to the kitchen, just delete it instantly!
+    if (printed === 0) {
+        Swal.fire({
+            title: 'Remove Item?', text: item.name, icon: 'warning',
+            showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes'
+        }).then((res) => { if (res.isConfirmed) { state.cart.splice(idx, 1); renderCart(); } });
+        return;
+    }
+
+    // 2. 🚨 HAS PRINTED ITEMS! Pop the Smart Void Modal.
+    const { value: formValues } = await Swal.fire({
+        title: `Void ${item.name}?`,
+        html: `
+            <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
+                ${printed} unit(s) active in kitchen. ${unprinted} unit(s) unprinted.
+            </div>
+            <div style="text-align:left; margin-bottom:10px;">
+                <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Quantity to Void (Max: ${item.qty})</label>
+                <input type="number" id="void-qty" class="swal2-input" min="1" max="${item.qty}" value="${item.qty}" style="margin-top:5px; text-align:center; font-weight:bold; font-size:1.5rem; color:var(--brand);">
+            </div>
+            <div id="auth-section">
+                <input type="text" id="void-reason" class="swal2-input" placeholder="Reason (e.g., Customer changed mind)" style="margin-top:0;">
+                <input type="password" id="void-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+            </div>
+        `,
+        icon: 'warning', showCancelButton: true, confirmButtonText: 'Authorize / Remove', confirmButtonColor: '#d33',
+        didOpen: () => {
+            // MAGIC UI: Dynamically hide the PIN box if they only delete unprinted items!
+            const qtyInput = document.getElementById('void-qty');
+            const authSec = document.getElementById('auth-section');
+            const checkAuth = () => { authSec.style.display = (parseInt(qtyInput.value) > unprinted) ? 'block' : 'none'; };
+            qtyInput.addEventListener('input', checkAuth);
+            checkAuth();
+        },
+        preConfirm: () => {
+            const vQty = parseInt(document.getElementById('void-qty').value);
+            const reason = document.getElementById('void-reason').value;
+            const pin = document.getElementById('void-pin').value;
+            
+            if (isNaN(vQty) || vQty < 1 || vQty > item.qty) { Swal.showValidationMessage('Invalid quantity!'); return false; }
+            
+            const needsAuth = vQty > unprinted;
+            if (needsAuth && (!reason || !pin)) { Swal.showValidationMessage('Reason and PIN are required for printed items!'); return false; }
+            
+            return { vQty, reason, pin, needsAuth };
+        }
+    });
+
+    if (formValues) {
+        const executeRemoval = async () => {
+            let voidedName = item.name;
+            let currentOrderId = state.activeOrderId;
+
+            if (formValues.vQty === item.qty) state.cart.splice(idx, 1);
+            else state.cart[idx].qty -= formValues.vQty;
+            
+            if (state.cart.length === 0 && currentOrderId && currentOrderId !== 'new') {
+                await fetch('../api/clear_order.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                    body: JSON.stringify({order_id: currentOrderId, reason: formValues.reason || 'Cart Cleared', pin: formValues.pin || ''})
+                });
+                state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+                document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+            } else if (currentOrderId && currentOrderId !== 'new') {
+                await window.saveOrder(true, formValues.reason);
+            }
+
+            // Only alert the kitchen printer if PRINTED items were killed
+            if (formValues.needsAuth) {
+                const printedVoided = formValues.vQty - unprinted; 
+                fetch(`../api/print_order.php?order_id=${currentOrderId}&type=void_item&item_name=${encodeURIComponent(voidedName)}&qty=${printedVoided}&reason=${encodeURIComponent(formValues.reason)}`).catch(e => console.error(e));
+            }
+
+            Swal.fire('Voided!', `${formValues.vQty}x ${voidedName} removed successfully.`, 'success');
+            renderCart();
+            if (state.cart.length === 0 && typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+        };
+
+        if (formValues.needsAuth) {
+            Swal.fire({title:'Authorizing...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            const authRes = await fetch('../api/auth_login.php', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode: formValues.pin })
+            });
+            const authData = await authRes.json();
+            if (authData.success && (authData.user.role === 'admin' || authData.user.role === 'manager')) { await executeRemoval(); } 
+            else { Swal.fire('Declined', 'Invalid PIN or you do not have Manager privileges.', 'error'); }
+        } else {
+            await executeRemoval(); // No auth needed, just do it!
+        }
+    }
 };
 
 window.editCartItem = async function(idx) {
@@ -446,7 +550,48 @@ window.editCartItem = async function(idx) {
     // --- STANDARD DATABASE ITEM LOGIC BELOW ---
     const p = state.products.find(x => x.id == item.id);
     if (!p) return;
-    
+
+    // 🌟 NEW BUG FIX: INTERCEPT "0 PESO" VARIABLE DB ITEMS (e.g. Corkage) 🌟
+    if (parseFloat(p.price) === 0 && (!p.variations || p.variations.length === 0)) {
+        const { value: formValues } = await Swal.fire({
+            title: `Edit ${p.name}`,
+            html: `
+                <div style="text-align:left;">
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Amount (₱)</label>
+                    <input type="number" id="oi-edit-price" class="search-bar" value="${item.price}" step="0.01" style="margin-bottom:10px; font-weight:bold; font-size:1.5rem; text-align:center; color:var(--brand-dark);">
+
+                    <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Details / Notes</label>
+                    <textarea id="oi-edit-note" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #ccc; font-family:inherit; min-height:80px; resize:vertical;">${item.item_notes || ''}</textarea>
+                </div>
+            `,
+            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Update', confirmButtonColor: '#6B4226', width: 400,
+            preConfirm: () => {
+                const price = parseFloat(document.getElementById('oi-edit-price').value);
+                const note = document.getElementById('oi-edit-note').value;
+                if (isNaN(price) || price < 0) { Swal.showValidationMessage('Valid amount required'); return false; }
+                return { price, note };
+            }
+        });
+
+        if (formValues) {
+            item.price = formValues.price;
+            item.item_notes = formValues.note || null;
+            
+            // Prevent duplicate stacking by checking unique key
+            const modKey = item.modifiers.map(m => m.id).sort().join(',');
+            const uniqueKey = `${item.id}-${item.variation_id}-${item.price}-${modKey}-${item.item_notes || ''}`;
+            const dupIdx = state.cart.findIndex((i, index) => index !== idx && `${i.id}-${i.variation_id}-${i.price}-${i.modifiers.map(m=>m.id).sort().join(',')}-${i.item_notes || ''}` === uniqueKey);
+            
+            if (dupIdx > -1) { 
+                state.cart[dupIdx].qty += item.qty; 
+                state.cart.splice(idx, 1); 
+            }
+            renderCart();
+        }
+        return; // 🛑 Stop execution here so it doesn't open the standard modifier modal!
+    }
+
+    // --- NORMAL EDIT FLOW FOR REGULAR ITEMS ---
     let selectedMods = item.modifiers ? item.modifiers.map(m => m.id) : [];
 
     const options = await window.selectProductOptions(p, item.variation_id, selectedMods, item.item_notes, true);
@@ -518,37 +663,101 @@ window.promptItemDiscount = async function(idx) {
     }
 };
 
-window.clearCart = function() {
+window.clearCart = async function() {
     if (state.cart.length === 0 && !state.activeOrderId) return Swal.fire('Empty', 'Your cart is already empty.', 'info');
 
-    Swal.fire({ title: 'Clear & Void Order?', text: 'This will free up the table.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then(async (res) => {
-        if (res.isConfirmed) {
-            if (state.activeOrderId && state.activeOrderId !== 'new') {
-                try { 
-                    await fetch('../api/clear_order.php', { 
-                        method: 'POST', 
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': getCsrfToken() // CSRF APPLIED
-                        }, 
-                        body: JSON.stringify({order_id: state.activeOrderId}) 
-                    }); 
-                } catch (e) {}
+    // 🌟 THE BRAIN: Check if ANY item in the cart has already been sent to the kitchen
+    let hasPrintedItems = false;
+    state.cart.forEach(item => {
+        if ((parseInt(item.kitchen_printed) || 0) > 0) hasPrintedItems = true;
+    });
+
+    if (state.activeOrderId && state.activeOrderId !== 'new') {
+        if (hasPrintedItems) {
+            // SECURITY: Items are in the kitchen! Force PIN and Reason to kill the table.
+            const { value: formValues } = await Swal.fire({
+                title: 'Void Entire Order?',
+                html: `
+                    <div style="font-size:0.9rem; color:var(--danger); margin-bottom:15px; font-weight:bold;">
+                        Items have already been sent to the kitchen. To void the whole ticket, please authorize.
+                    </div>
+                    <input type="text" id="clear-reason" class="swal2-input" placeholder="Reason (e.g. Walk-out)">
+                    <input type="password" id="clear-pin" class="swal2-input" placeholder="Manager PIN" inputmode="numeric">
+                `,
+                icon: 'warning', showCancelButton: true, confirmButtonText: 'Void Table', confirmButtonColor: '#d33',
+                preConfirm: () => {
+                    const reason = document.getElementById('clear-reason').value;
+                    const pin = document.getElementById('clear-pin').value;
+                    if (!reason || !pin) { Swal.showValidationMessage('Reason and Manager PIN are required!'); return false; }
+                    return { reason, pin };
+                }
+            });
+
+            if (formValues) {
+                executeClearOrder(formValues.reason, formValues.pin);
             }
-            state.cart = []; state.discount_id = null; state.discount_amount = 0; state.discount_note = ''; state.senior_details = []; state.amount_paid = 0; 
-            state.customer_name = null;
-            state.custom_discount = { is_active: false, type: 'percent', val: 0, target: 'all', note: '' };
-            state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+        } else {
+            // NO ITEMS PRINTED YET: Just ask for a simple Yes/No confirmation without a PIN!
+            Swal.fire({
+                title: 'Clear Cart?', 
+                text: 'Remove all items and cancel this order?', 
+                icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33'
+            }).then((res) => {
+                if (res.isConfirmed) {
+                    // Empty PIN works here because the API allows logged-in cashiers to void unprinted orders
+                    executeClearOrder('Cancelled before sending to kitchen', ''); 
+                }
+            });
+        }
+    } else {
+        // Unsaved order: Allow normal clearing locally
+        Swal.fire({ title: 'Clear Cart?', text: 'Remove all unsaved items?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33' }).then((res) => {
+            if (res.isConfirmed) {
+                state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+                document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+                renderCart();
+                if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+            }
+        });
+    }
+};
+
+// Helper function to keep the code clean
+async function executeClearOrder(reason, pin) {
+    Swal.fire({title:'Voiding...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    try {
+        const res = await fetch('../api/clear_order.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({order_id: state.activeOrderId, reason: reason, pin: pin})
+        });
+        const data = await res.json();
+        if (data.success) {
+            Swal.fire('Cleared!', 'Order has been cancelled.', 'success');
+            state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
             document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
             renderCart();
-            if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup(); 
-        }
-    });
-};
+            if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+        } else { Swal.fire('Error', data.error, 'error'); }
+    } catch (e) { Swal.fire('Error', 'Connection failed', 'error'); }
+}
 
 window.applyDiscountPopup = async function() {
     if(state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
-    let html = '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:15px;">';
+    
+    // 📱 MOBILE CSS INJECTED HERE
+    let html = `
+    <style>
+        .disc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .big-btn { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; }
+        @media (max-width: 600px) {
+            .disc-grid { grid-template-columns: 1fr; gap: 12px; }
+            .disc-grid button { padding: 20px 10px !important; }
+            .disc-grid span:first-child { font-size: 1.15rem !important; }
+            .big-btn { padding: 18px !important; font-size: 1.1rem !important; }
+        }
+    </style>
+    <div class="disc-grid">`;
     
     state.discounts.forEach(d => { 
         let label = d.name;
@@ -565,67 +774,59 @@ window.applyDiscountPopup = async function() {
         html += `
             <button class="btn secondary" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px; line-height:1.2;" onclick="selectDiscount(${d.id})">
                 <span style="font-weight:bold; font-size:1rem; color:var(--brand-dark);">${label}</span>
-                <span style="font-size:0.75rem; color:gray; margin-top:4px;">Applies to: ${targetText}</span>
+                <span style="font-size:0.8rem; color:gray; margin-top:6px;">Applies to: ${targetText}</span>
             </button>
         `; 
     });
     html += `</div>`;
 
-    // 🌟 NEW: THE ROUNDING / EXACT TOTAL BUTTON 🌟
-    html += `<button class="btn" style="width:100%; background:#f59e0b; color:white; border:none; margin-bottom:10px;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Down)</button>`;
-    
-    html += `<button class="btn" style="width:100%; background:var(--blue); margin-bottom:10px;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
-    html += `<button class="btn danger" style="width:100%;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
+    html += `<button class="big-btn" style="background:#f59e0b; color:white;" onclick="exactTotalDiscountPopup()">🎯 Set Exact Total (Round Up / Down)</button>`;
+    html += `<button class="big-btn" style="background:var(--blue); color:white;" onclick="customOrderDiscount()">🌟 Custom Target Discount</button>`;
+    html += `<button class="big-btn" style="background:#dc2626; color:white;" onclick="selectDiscount(0)">Remove All Discounts</button>`;
     
     Swal.fire({ title: 'Select Discount', html: html, showConfirmButton: false, showCancelButton: true });
 };
 
 window.exactTotalDiscountPopup = async function() {
-    Swal.close();
-    
-    // 🌟 THE FIX: Use the Grand Total, which ALREADY includes the Senior Discount!
-    const currentTotal = state.grand_total;
+        Swal.close();
+        const currentTotal = state.grand_total;
 
-    if (currentTotal <= 0) return Swal.fire('Error', 'Bill is already zero.', 'error');
+        if (currentTotal <= 0) return Swal.fire('Error', 'Bill is already zero.', 'error');
 
-    const { value: targetTotal } = await Swal.fire({
-        title: '🎯 Round Down Bill',
-        html: `
-            <div style="font-size:0.9rem; color:gray; margin-bottom:15px;">The current total (after all discounts) is <b>₱${currentTotal.toFixed(2)}</b>. What exact amount do you want to charge?</div>
-            <input type="number" id="et-val" class="search-bar" placeholder="e.g. 1500" step="0.01" style="font-size:2rem; text-align:center; height:70px; font-weight:bold; color:var(--brand-dark);">
-        `,
-        focusConfirm: false, showCancelButton: true, confirmButtonText: 'Apply Adjustment', confirmButtonColor: '#6B4226',
-        preConfirm: () => {
-            const val = parseFloat(document.getElementById('et-val').value);
-            if (isNaN(val) || val < 0) {
-                Swal.showValidationMessage('Please enter a valid amount.');
-                return false;
+        const { value: targetTotal } = await Swal.fire({
+            title: '🎯 Adjust Exact Total',
+            html: `
+                <div style="font-size:0.9rem; color:gray; margin-bottom:15px;">The current total is <b>₱${currentTotal.toFixed(2)}</b>. What exact amount do you want to charge?</div>
+                <input type="number" id="et-val" class="search-bar" placeholder="e.g. 180" step="0.01" style="font-size:2rem; text-align:center; height:70px; font-weight:bold; color:var(--brand-dark);">
+            `,
+            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Apply Adjustment', confirmButtonColor: '#6B4226',
+            preConfirm: () => {
+                const val = parseFloat(document.getElementById('et-val').value);
+                if (isNaN(val) || val < 0) {
+                    Swal.showValidationMessage('Please enter a valid amount.');
+                    return false;
+                }
+                return val; // <--- Restriction removed! It now allows higher numbers.
             }
-            if (val >= currentTotal) {
-                Swal.showValidationMessage('Amount must be lower than the current total (₱' + currentTotal.toFixed(2) + ')');
-                return false;
-            }
-            return val;
+        });
+
+        if (targetTotal !== undefined) {
+            // If 179 - 180 = -1. A negative discount tells the database it's a surcharge!
+            const discountToApply = currentTotal - targetTotal;
+            
+            state.custom_discount = { 
+                is_active: true, 
+                type: 'amount', 
+                val: discountToApply, 
+                target: 'all', 
+                note: targetTotal > currentTotal ? 'Round Up' : 'Round Down' 
+            };
+            
+            Swal.fire({title:'Adjusting...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+            await saveOrder(true);
+            Swal.fire({title:'Applied', text: 'Bill adjusted to ₱' + targetTotal.toFixed(2), icon:'success', timer: 1000, showConfirmButton: false});
         }
-    });
-
-    if (targetTotal !== undefined) {
-        const discountToApply = currentTotal - targetTotal;
-        
-        // WE DO NOT NULLIFY state.discount_id ANYMORE! Let it stack!
-        state.custom_discount = { 
-            is_active: true, 
-            type: 'amount', 
-            val: discountToApply, 
-            target: 'all', 
-            note: 'Round Off' 
-        };
-        
-        Swal.fire({title:'Adjusting...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-        await saveOrder(true);
-        Swal.fire({title:'Applied', text: 'Bill rounded down to ₱' + targetTotal.toFixed(2), icon:'success', timer: 1000, showConfirmButton: false});
-    }
-};
+    };
 
 window.customOrderDiscount = async function() {
     Swal.close();
@@ -808,66 +1009,72 @@ function syncOrderState(d) {
 }
 
 let isSaving = false;
-window.saveOrder = async function(silent = false) {
+window.saveOrder = async function(silent = false, voidReason = null) {
     if (isSaving) return;
     if (state.cart.length === 0) return Swal.fire('Empty', 'Add items first', 'warning');
+    // Add this right after the empty cart check:
+    Swal.fire({
+        title: 'Processing...', 
+        allowOutsideClick: false, 
+        didOpen: () => { Swal.showLoading(); }
+    });
     isSaving = true;
 
-    const response = await fetch('../api/save_order.php', {
-        method: 'POST', 
-        headers: { 
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': getCsrfToken() 
-        },
-        body: JSON.stringify({
-            items: state.cart, table_id: state.activeTableId, order_id: state.activeOrderId === 'new' ? null : state.activeOrderId,
-            order_type: state.mode, discount_id: state.discount_id, discount_note: state.discount_note, senior_details: state.senior_details,
-            custom_discount: state.custom_discount, customer_name: state.customer_name
-        })
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-        state.activeOrderId = result.order_id;
-        if(state.activeOrderId) {
-            const r = await fetch(`../api/get_active_order.php?order_id=${state.activeOrderId}`);
-            const d = await r.json();
-            if(d.success) { syncOrderState(d); renderCart(); }
-        }
-        if(!silent) Swal.fire({ icon: 'success', title: 'Order Saved', timer: 1000, showConfirmButton: false });
-        
-    } else if (result.error === 'Unauthorized') {
-        // 🚨 MAGIC FIX: RESCUE CART LOGIC (Session died while tablet was asleep)
-        const { value: pin } = await Swal.fire({
-            title: 'Session Expired',
-            text: 'Please enter your PIN to resume saving this order:',
-            input: 'password',
-            inputAttributes: { inputmode: 'numeric', pattern: '[0-9]*' },
-            showCancelButton: true,
-            confirmButtonColor: '#6B4226'
+    const payload = {
+        items: state.cart, table_id: state.activeTableId, order_id: state.activeOrderId === 'new' ? null : state.activeOrderId,
+        order_type: state.mode, discount_id: state.discount_id, discount_note: state.discount_note, senior_details: state.senior_details,
+        custom_discount: state.custom_discount, customer_name: state.customer_name,
+        void_reason: voidReason 
+    };
+
+    try {
+        const response = await fetch('../api/save_order.php', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify(payload)
         });
         
-        if (pin) {
-            Swal.fire({title:'Resuming...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
-            const loginRes = await fetch('../api/auth_login.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ passcode: pin })
-            });
-            const loginData = await loginRes.json();
+        if (!response.ok) throw new Error('Server unreachable');
+        const data = await response.json();
+        
+        if (data.success) {
+            state.activeOrderId = data.order_id;
             
-            if (loginData.success) {
-                // Inject the new security token into the page and re-run the save!
-                document.querySelector('meta[name="csrf-token"]').setAttribute('content', loginData.csrf_token);
-                return saveOrder(silent); 
-            } else {
-                Swal.fire('Error', 'Invalid PIN. Order not saved.', 'error');
+            // 🌟 THE FIX: Immediately re-sync with the database to grab the server's calculated discount math!
+            if (state.activeOrderId && state.activeOrderId !== 'new') {
+                const syncRes = await fetch(`../api/get_active_order.php?order_id=${state.activeOrderId}`);
+                const syncData = await syncRes.json();
+                if (syncData.success) syncOrderState(syncData);
             }
+
+            if (!silent) {
+                Swal.fire({title: 'Saved!', icon: 'success', timer: 700, showConfirmButton: false});
+            }
+            renderCart();
+        } else {
+            Swal.fire('Error', data.error || 'Failed to save order.', 'error');
         }
-    } else {
-        Swal.fire('Error', result.error, 'error');
+
+    } catch (error) {
+        console.warn("Server offline! Saving to local queue.");
+        saveToOfflineQueue(payload);
+        
+        if (!silent) {
+            Swal.fire({
+                title: 'Saved Offline', 
+                text: 'The server is currently unreachable. The order has been saved to this tablet. Please sync when the server is back online!', 
+                icon: 'warning', confirmButtonColor: '#f59e0b'
+            });
+        }
+        
+        state.cart = []; state.activeTableId = null; state.activeOrderId = null; state.grand_total = 0;
+        document.getElementById('tableName').innerText = state.mode === 'takeout' ? 'Select Takeout' : 'Select Table';
+        renderCart();
+        if (typeof showTablePopup === 'function' && state.mode !== 'takeout') showTablePopup();
+        
+    } finally {
+        isSaving = false;
     }
-    isSaving = false;
 };
 
 window.loadTakeout = async function(id) { 
@@ -949,20 +1156,36 @@ window.createNewSubCheck = function() {
 window.splitBillByItem = async function(balance) {
     if (state.cart.length === 0) return;
     
-    let checklistHtml = `<div style="text-align:left; max-height:250px; overflow-y:auto; border:1px solid #eee; padding:10px; border-radius:8px;">`;
+    // 📱 MOBILE CSS INJECTED HERE
+    let checklistHtml = `
+    <style>
+        .split-item-row { display: flex; justify-content: space-between; align-items: center; padding: 15px 10px; border-bottom: 1px dashed #ddd; cursor: pointer; transition: 0.2s; }
+        .split-item-row:active { background: #f3f4f6; }
+        .big-checkbox { transform: scale(1.5); margin-right: 15px; pointer-events: none; }
+        @media (max-width: 600px) {
+            .split-item-row { padding: 20px 10px; }
+            .big-checkbox { transform: scale(1.8); margin-right: 20px; }
+        }
+    </style>
+    <div style="text-align:left; max-height:40vh; overflow-y:auto; border:1px solid #eee; border-radius:8px;">`;
+    
     state.cart.forEach((item, idx) => {
         const mCost = item.modifiers.reduce((s, m) => s + m.price, 0);
         const lineTotal = ((item.price + mCost) * item.qty) - (parseFloat(item.discount_amount) || 0);
+        
         checklistHtml += `
-            <label style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px dashed #eee; cursor:pointer;">
-                <span style="font-size:0.95rem;"><input type="checkbox" class="split-cb" data-name="${item.qty}x ${item.name}" value="${lineTotal}"> ${item.qty}x ${item.name}</span>
-                <span style="font-weight:bold; color:var(--brand);">₱${lineTotal.toFixed(2)}</span>
+            <label class="split-item-row">
+                <div style="font-size:1rem; display:flex; align-items:center;">
+                    <input type="checkbox" class="split-cb big-checkbox" data-name="${item.qty}x ${item.name}" value="${lineTotal}">
+                    <span style="font-weight:bold; color:var(--text-main); line-height:1.2;">${item.qty}x ${item.name}</span>
+                </div>
+                <span style="font-weight:900; color:var(--brand); font-size:1.1rem;">₱${lineTotal.toFixed(2)}</span>
             </label>`;
     });
     checklistHtml += `</div>`;
 
     const { value: splitResult } = await Swal.fire({
-        title: 'Select Items to Pay', html: checklistHtml, showCancelButton: true, confirmButtonText: 'Use Selected Total', cancelButtonText: 'Back', confirmButtonColor: 'var(--brand)',
+        title: 'Select Items to Pay', html: checklistHtml, showCancelButton: true, confirmButtonText: 'Use Selected Total', cancelButtonText: 'Back', confirmButtonColor: '#6B4226',
         preConfirm: () => {
             let sum = 0; let selectedNames = [];
             document.querySelectorAll('.split-cb:checked').forEach(cb => { sum += parseFloat(cb.value); selectedNames.push(cb.dataset.name); });
@@ -1012,6 +1235,12 @@ window.addTendered = function(amount) {
 
 window.checkout = async function(prefillAmount = null, selectedItems = null) {
     if (state.cart.length === 0) return Swal.fire('Empty', 'Nothing to charge!', 'warning');
+    // Add this right after the empty cart check:
+    Swal.fire({
+        title: 'Processing...', 
+        allowOutsideClick: false, 
+        didOpen: () => { Swal.showLoading(); }
+    });
     if (prefillAmount === null) { await window.saveOrder(true); }
     if (!state.activeOrderId) return; 
 
@@ -1028,11 +1257,28 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
 
     const { value: formValues } = await Swal.fire({
         title: 'Finalize Payment',
-        width: '800px', 
+        width: '800px', // SweetAlert max-widths this automatically on phones
         html: `
-            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; text-align: left;">
+            <style>
+                .checkout-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; text-align: left; }
+                .checkout-left { border-right: 1px solid #eee; padding-right: 20px; }
                 
-                <div style="border-right: 1px solid #eee; padding-right: 20px;">
+                /* 📱 MOBILE RESPONSIVE STYLES */
+                @media (max-width: 768px) {
+                    .checkout-grid { grid-template-columns: 1fr; gap: 10px; }
+                    .checkout-left { border-right: none; padding-right: 0; border-bottom: 2px dashed #eee; padding-bottom: 20px; margin-bottom: 10px; }
+                    
+                    /* Make inputs and buttons taller and easier to tap on phones */
+                    #pay-amount { height: 60px !important; font-size: 2rem !important; }
+                    #cash-pad button { height: 50px !important; font-size: 1rem !important; font-weight: 900 !important; }
+                    
+                    .pm-btn { padding: 10px !important; font-size: 0.9rem !important; }
+                }
+            </style>
+
+            <div class="checkout-grid">
+                
+                <div class="checkout-left">
                     <div style="background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee; margin-bottom:15px;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>Total Bill:</span> <span>₱${state.grand_total.toFixed(2)}</span></div>
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px; color:var(--text-muted); font-size:0.9rem;"><span>Already Paid:</span> <span>₱${state.amount_paid.toFixed(2)}</span></div>
@@ -1051,8 +1297,8 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
 
                     <label style="font-weight:bold; font-size:0.85rem; color:var(--text-muted); text-transform:uppercase;">Payment Method</label>
                     <div style="display:flex; gap:10px; margin-top:8px; margin-bottom:20px;">
-                        <button type="button" id="btn-cash" style="flex:1; padding:15px; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;" onclick="setPayMethod('cash')">💵 CASH</button>
-                        <button type="button" id="btn-gcash" style="flex:1; padding:15px; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;" onclick="setPayMethod('gcash')">📱 GCASH</button>
+                        <button type="button" id="btn-cash" class="pm-btn" style="flex:1; padding:15px; border-radius:8px; border:2px solid var(--brand); background:var(--brand); color:white; font-weight:bold; cursor:pointer;" onclick="setPayMethod('cash')">💵 CASH</button>
+                        <button type="button" id="btn-gcash" class="pm-btn" style="flex:1; padding:15px; border-radius:8px; border:2px solid #ccc; background:white; color:gray; font-weight:bold; cursor:pointer;" onclick="setPayMethod('gcash')">📱 GCASH</button>
                     </div>
                     
                     <button class="btn secondary" style="width:100%; border-style:dashed;" onclick="splitBillByItem(${balance})">✂️ Split by Specific Items</button>
@@ -1079,14 +1325,13 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
         showCancelButton: true, confirmButtonText: 'PROCESS PAYMENT', confirmButtonColor: '#2e7d32',
         didOpen: () => {
             const amtInput = document.getElementById('pay-amount');
-            const tipInput = document.getElementById('pay-tip'); // Grab the tip input
+            const tipInput = document.getElementById('pay-tip'); 
             
             const updateChange = () => {
                 const targetDue = prefillAmount || balance;
                 const tendered = parseFloat(amtInput.value) || 0;
-                const tip = parseFloat(tipInput.value) || 0; // Include tip in math
+                const tip = parseFloat(tipInput.value) || 0; 
                 
-                // MATH: Change = Tendered - Bill - Tip
                 const change = Math.round((tendered - targetDue - tip) * 100) / 100;
                 
                 const changeEl = document.getElementById('co-change');
@@ -1099,7 +1344,6 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
                 }
             };
             
-            // Listen to BOTH inputs so change calculates dynamically!
             amtInput.addEventListener('input', updateChange);
             tipInput.addEventListener('input', updateChange);
             if (prefillAmount) updateChange();
@@ -1107,12 +1351,12 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
         preConfirm: () => {
             const method = document.getElementById('pay-method').value;
             const amount = parseFloat(document.getElementById('pay-amount').value);
-            const tip = parseFloat(document.getElementById('pay-tip').value) || 0; // Get Tip
+            const tip = parseFloat(document.getElementById('pay-tip').value) || 0; 
             
             if(isNaN(amount) || amount <= 0) { Swal.showValidationMessage('Enter a valid tendered amount'); return false; }
             if (amount < (balance + tip)) { Swal.showValidationMessage('Tendered amount is too low to cover bill + tip!'); return false; }
             
-            return { method, amount, tip }; // Pass tip to payload
+            return { method, amount, tip }; 
         }
     });
 
@@ -1124,7 +1368,7 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
                 order_id: state.activeOrderId, 
                 method: formValues.method, 
                 amount: formValues.amount, 
-                tip: formValues.tip, // SEND TIP TO SERVER
+                tip: formValues.tip, 
                 customer_name: state.customer_name 
             })
         });
@@ -1150,20 +1394,65 @@ window.checkout = async function(prefillAmount = null, selectedItems = null) {
 };
 
 window.printOrder = async function(type, event) {
+    // 1. FORCE SAVE: Make sure the database has the latest items before sending to the kitchen!
+    if (type === 'kitchen') {
+        await saveOrder(true);
+    }
+
     if (!state.activeOrderId) return Swal.fire('Error', 'Please save the order first before printing.', 'warning');
+    // Add this right after the empty cart check:
+    Swal.fire({
+        title: 'Processing...', 
+        allowOutsideClick: false, 
+        didOpen: () => { Swal.showLoading(); }
+    });
+    
     const btn = event ? event.currentTarget : null;
     let oldText = "";
-    if (btn) { oldText = btn.innerHTML; btn.innerHTML = "Printing..."; btn.disabled = true; }
+    if (btn) { oldText = btn.innerHTML; btn.innerHTML = "Sending..."; btn.disabled = true; }
+    
     try {
+        Swal.fire({title: 'Contacting Printer...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+        
         const r = await fetch(`../api/print_order.php?order_id=${state.activeOrderId}&type=${type}`);
-        const d = await r.json();
+        const text = await r.text(); // Catch raw text to prevent silent JSON crashes
+        
+        let d;
+        try { 
+            d = JSON.parse(text); 
+        } catch(err) { 
+            throw new Error('Printer API crashed. Raw response: ' + text.substring(0, 100)); 
+        }
+
         if(d.success) {
-            if(d.errors && d.errors.length > 0) Swal.fire('Warning', 'Printed with issues:\n' + d.errors.join('\n'), 'warning');
-            else Swal.fire({title: 'Printed successfully', icon: 'success', timer: 1000, showConfirmButton: false});
-        } else { Swal.fire('Print Failed', d.message || d.error, 'error'); }
-    } catch(e) { Swal.fire('Error', 'Could not reach printer service.', 'error'); }
+            // Check for Ghost Printer Errors first!
+            if(d.errors && d.errors.length > 0) {
+                // 🚨 PRINTER FAILED: Warn the user, and DO NOT lock the items!
+                Swal.fire({
+                    title: 'Printer Error!', 
+                    text: 'The order saved, but printing failed:\n\n' + d.errors.join('\n\n'), 
+                    icon: 'error',
+                    confirmButtonText: 'Okay',
+                    confirmButtonColor: '#dc2626'
+                });
+            } else {
+                // ✅ PRINTER WORKED: Now we can safely lock the cart on the screen!
+                if (type === 'kitchen') {
+                    state.cart.forEach(item => { item.kitchen_printed = parseInt(item.qty); });
+                    renderCart(); 
+                }
+                Swal.fire({title: 'Sent & Locked!', icon: 'success', timer: 1500, showConfirmButton: false});
+            }
+        } else { 
+            Swal.fire('Print Failed', d.message || d.error, 'error'); 
+        }
+    } catch(e) { 
+        Swal.fire('Error', e.message, 'error'); 
+    }
+    
     if (btn) { btn.innerHTML = oldText; btn.disabled = false; }
 };
+
 window.transferTablePopup = async function() {
     if (!state.activeOrderId || state.activeOrderId === 'new') return;
     
@@ -1171,20 +1460,76 @@ window.transferTablePopup = async function() {
     const r = await fetch('../api/get_tables.php');
     const tables = await r.json();
     
-    let html = '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">';
-    let hasAvailable = false;
+    let html = `
+    <style>
+        .table-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        @media (max-width: 600px) {
+            .table-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .table-grid div { padding: 25px 5px !important; font-size: 1.3rem !important; }
+        }
+    </style>
+    <div class="table-grid">`;
+    
+    let hasOtherTables = false;
     tables.forEach(t => {
-        // Only show tables that are empty!
-        if (t.status === 'available') {
-            hasAvailable = true;
-            html += `<div style="padding:15px 5px; border-radius:8px; cursor:pointer; font-weight:bold; background:#f0fdf4; border:1px solid #bbf7d0; color:var(--brand-dark);" onclick="executeTransfer(${t.id}, '${t.table_number}')">${t.table_number}</div>`;
+        // Show ALL tables except the one the customer is currently sitting at
+        if (t.id != state.activeTableId) { 
+            hasOtherTables = true;
+            
+            // Color code occupied vs available
+            let isOcc = t.status === 'occupied';
+            let bg = isOcc ? '#fff0f0' : '#f0fdf4';
+            let border = isOcc ? '#fecaca' : '#bbf7d0';
+            let color = isOcc ? '#dc2626' : 'var(--brand-dark)';
+            let subText = isOcc ? '<div style="font-size:0.75rem; font-weight:normal; margin-top:2px;">Occupied (Join)</div>' : '<div style="font-size:0.75rem; font-weight:normal; margin-top:2px; color:gray;">Empty</div>';
+
+            html += `<div style="padding:15px 5px; border-radius:8px; cursor:pointer; font-weight:bold; background:${bg}; border:1px solid ${border}; color:${color};" onclick="executeTransfer(${t.id}, '${t.table_number}', ${isOcc})">${t.table_number}${subText}</div>`;
         }
     });
     html += '</div>';
 
-    if (!hasAvailable) return Swal.fire('No Tables', 'All other tables are currently occupied!', 'info');
+    if (!hasOtherTables) return Swal.fire('No Tables', 'There are no other tables in the system.', 'info');
 
     Swal.fire({ title: 'Move to which table?', html: html, showConfirmButton: false, showCancelButton: true });
+};
+
+window.executeTransfer = async function(newTableId, newTableNum, isOccupied) {
+    // 🌟 Safety Check: If joining an occupied table, confirm they want to create a sub-check!
+    if (isOccupied) {
+        const { isConfirmed } = await Swal.fire({
+            title: 'Join Occupied Table?',
+            html: `Table ${newTableNum} is already occupied.<br><br>This will move the current bill over as a <b>separate Sub-Check</b>.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Join Table',
+            confirmButtonColor: '#6B4226'
+        });
+        if (!isConfirmed) return window.transferTablePopup(); // Re-open table map if canceled
+    }
+
+    Swal.fire({title:'Moving...', allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+    try {
+        const res = await fetch('../api/transfer_table.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            body: JSON.stringify({ order_id: state.activeOrderId, new_table_id: newTableId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            state.activeTableId = newTableId;
+            
+            // Adjust the top label so they know it worked
+            let nameDisplay = isOccupied ? data.new_table_name + ' (Sub-Check)' : data.new_table_name;
+            if (state.customer_name) nameDisplay += ' - ' + state.customer_name;
+            
+            document.getElementById('tableName').innerText = nameDisplay;
+            Swal.fire({icon: 'success', title: 'Moved successfully!', timer: 1000, showConfirmButton: false});
+        } else {
+            Swal.fire('Error', data.error, 'error');
+        }
+    } catch (e) {
+        Swal.fire('Error', 'Failed to transfer table.', 'error');
+    }
 };
 
 window.executeTransfer = async function(newTableId, newTableNum) {
@@ -1234,20 +1579,31 @@ window.splitOrderPopup = async function() {
     let totalItems = state.cart.reduce((sum, i) => sum + i.qty, 0);
     if (totalItems < 2) return Swal.fire('Error', 'Not enough items to split. You need at least 2 items.', 'warning');
 
-    let html = `<div style="text-align:left; max-height:350px; overflow-y:auto; padding:5px;">`;
+    // 📱 MOBILE CSS INJECTED HERE
+    let html = `
+    <style>
+        .qty-btn-large { width: 35px; height: 35px; font-size: 1.5rem; display: inline-flex; align-items: center; justify-content: center; background: white; border: 1px solid #ccc; border-radius: 50%; cursor: pointer; }
+        @media (max-width: 600px) {
+            .qty-btn-large { width: 45px; height: 45px; font-size: 2rem; border-width: 2px; }
+            .split-row-item { flex-direction: column; align-items: flex-start !important; gap: 15px; padding: 20px 0 !important; }
+            .split-qty-wrapper { width: 100%; justify-content: space-between; background: transparent !important; padding: 0 !important; }
+        }
+    </style>
+    <div style="text-align:left; max-height:45vh; overflow-y:auto; padding:5px;">`;
+    
     html += `<div style="font-size:0.9rem; color:gray; margin-bottom:15px;">Select items to move to a new separate bill. <b>They will remain at this table.</b></div>`;
     
     state.cart.forEach((item, idx) => {
         html += `
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #ddd; padding:12px 0;">
+            <div class="split-row-item" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #ddd; padding:12px 0;">
                 <div style="flex:1; line-height:1.2; padding-right:10px;">
-                    <div style="font-weight:bold; font-size:1rem;">${item.name}</div>
-                    <div style="font-size:0.85rem; color:var(--text-muted);">Current Check: ${item.qty}</div>
+                    <div style="font-weight:bold; font-size:1.1rem; color:var(--text-main);">${item.name}</div>
+                    <div style="font-size:0.9rem; color:var(--text-muted); margin-top:4px;">Current Check: ${item.qty}</div>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px; background:#f3f4f6; padding:6px; border-radius:30px;">
-                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer;" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
-                    <input type="number" id="sqty_${idx}" value="0" min="0" max="${item.qty}" style="width:30px; text-align:center; background:transparent; border:none; font-weight:bold; font-size:1.2rem; color:var(--brand);" readonly>
-                    <span style="font-size:1.5rem; width:35px; height:35px; display:inline-flex; align-items:center; justify-content:center; background:white; border:1px solid #ccc; border-radius:50%; cursor:pointer;" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
+                <div class="split-qty-wrapper" style="display:flex; align-items:center; gap:12px; background:#f3f4f6; padding:8px; border-radius:30px;">
+                    <span class="qty-btn-large" onclick="document.getElementById('sqty_${idx}').stepDown()">−</span>
+                    <input type="number" id="sqty_${idx}" value="0" min="0" max="${item.qty}" style="width:40px; text-align:center; background:transparent; border:none; font-weight:900; font-size:1.4rem; color:var(--brand);" readonly>
+                    <span class="qty-btn-large" onclick="document.getElementById('sqty_${idx}').stepUp()">+</span>
                 </div>
             </div>
         `;
@@ -1295,13 +1651,11 @@ window.splitOrderPopup = async function() {
         
         let originalTableName = document.getElementById('tableName').innerText.split(' - ')[0];
         
-        // 1. Update Check 1
         state.cart = proceed.keepCart;
         await window.saveOrder(true);
         
-        // 2. Setup Check 2 (STAYS ON DINE-IN, STAYS ON SAME TABLE)
         state.activeOrderId = 'new';
-        state.customer_name = 'Split Check'; // Helps identify it in the modal
+        state.customer_name = 'Split Check'; 
         state.cart = proceed.toMove; 
         state.discount_id = null; state.discount_note = ''; state.senior_details = []; state.custom_discount = {is_active:false}; state.amount_paid = 0;
         
@@ -1316,3 +1670,82 @@ window.splitOrderPopup = async function() {
         renderCart();
     }
 };
+
+// ==========================================
+// 🔴 OFFLINE QUEUE ENGINE
+// ==========================================
+
+function saveToOfflineQueue(payload) {
+    let queue = JSON.parse(localStorage.getItem('fogsOfflineOrders')) || [];
+    // Stamp it with the exact time it was taken
+    payload.offline_timestamp = new Date().toISOString(); 
+    queue.push(payload);
+    localStorage.setItem('fogsOfflineOrders', JSON.stringify(queue));
+    updateSyncButton();
+}
+
+window.syncOfflineOrders = async function() {
+    let queue = JSON.parse(localStorage.getItem('fogsOfflineOrders')) || [];
+    if (queue.length === 0) return Swal.fire('Up to date', 'No offline orders to sync.', 'info');
+
+    Swal.fire({title: 'Syncing...', text: `Sending ${queue.length} orders to server`, allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+
+    let successCount = 0;
+    let failedQueue = [];
+
+    for (let order of queue) {
+        try {
+            const res = await fetch('../api/save_order.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+                body: JSON.stringify(order)
+            });
+            const data = await res.json();
+            if (data.success) {
+                successCount++;
+            } else {
+                failedQueue.push(order); // Server rejected it for some reason
+            }
+        } catch (e) {
+            failedQueue.push(order); // Server is still down!
+        }
+    }
+
+    // Update the queue with whatever failed to send
+    localStorage.setItem('fogsOfflineOrders', JSON.stringify(failedQueue));
+    updateSyncButton();
+
+    if (failedQueue.length === 0) {
+        Swal.fire('Synced!', `${successCount} orders successfully sent to the server.`, 'success');
+    } else {
+        Swal.fire('Partial Sync', `${successCount} synced, ${failedQueue.length} failed. Server might still be down.`, 'warning');
+    }
+};
+
+function updateSyncButton() {
+    let queue = JSON.parse(localStorage.getItem('fogsOfflineOrders')) || [];
+    let syncBtn = document.getElementById('offline-sync-btn');
+    
+    if (queue.length > 0) {
+        if (!syncBtn) {
+            syncBtn = document.createElement('button');
+            syncBtn.id = 'offline-sync-btn';
+            syncBtn.style.cssText = "position:fixed; top:15px; left:50%; transform:translateX(-50%); z-index:9999; background:#dc2626; color:white; font-weight:900; padding:12px 24px; border-radius:30px; border:2px solid white; cursor:pointer; box-shadow:0 4px 10px rgba(0,0,0,0.3); font-size:1rem; animation: pulse 2s infinite;";
+            syncBtn.onclick = window.syncOfflineOrders;
+            
+            // Add a little CSS pulse animation so they don't forget to sync
+            const style = document.createElement('style');
+            style.innerHTML = `@keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } 100% { transform: translateX(-50%) scale(1); } }`;
+            document.head.appendChild(style);
+            
+            document.body.appendChild(syncBtn);
+        }
+        syncBtn.innerHTML = `⚠️ SYNC ${queue.length} OFFLINE ORDERS`;
+        syncBtn.style.display = 'block';
+    } else if (syncBtn) {
+        syncBtn.style.display = 'none';
+    }
+}
+
+// Check for offline orders every time the app loads
+window.addEventListener('load', updateSyncButton);

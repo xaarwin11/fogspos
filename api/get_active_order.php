@@ -9,7 +9,7 @@ try {
     $mysqli = get_db_conn();
 
     if ($o_id > 0) {
-        $stmt = $mysqli->prepare("SELECT * FROM orders WHERE id = ? AND status = 'open'");
+        $stmt = $mysqli->prepare("SELECT * FROM orders WHERE id = ? AND status IN ('open', 'preparing', 'ready')");
         $stmt->bind_param('i', $o_id);
         $stmt->execute();
         $order = $stmt->get_result()->fetch_assoc();
@@ -20,7 +20,7 @@ try {
                    GROUP_CONCAT(CONCAT(oi.quantity, 'x ', oi.product_name) SEPARATOR ', ') as item_summary
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
-            WHERE o.table_id = ? AND o.status = 'open'
+            WHERE o.table_id = ? AND o.status IN ('open', 'preparing', 'ready')
             GROUP BY o.id
             ORDER BY o.id ASC
         ");
@@ -49,7 +49,9 @@ try {
     $order_id = (int)$order['id'];
 
     $paid_res = $mysqli->query("SELECT COALESCE(SUM(amount - change_given), 0) as total_paid FROM payments WHERE order_id = $order_id");
-    $order['amount_paid'] = (float)$paid_res->fetch_assoc()['total_paid'];
+    $raw_paid = (float)$paid_res->fetch_assoc()['total_paid'];
+    // 🌟 FIX: Subtract the tip so the POS knows exactly how much went towards the food!
+    $order['amount_paid'] = max(0, $raw_paid - (float)($order['tip_amount'] ?? 0));
 
     $sc_stmt = $mysqli->prepare("SELECT discount_type as type, person_name as name, id_number as id, address FROM order_sc_pwd WHERE order_id = ?");
     $sc_stmt->bind_param('i', $order_id);

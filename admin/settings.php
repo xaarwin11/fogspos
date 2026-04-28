@@ -11,6 +11,12 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="manifest" href="../manifest.json">
+    <meta name="theme-color" content="#6B4226">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Fogs POS">
+    <link rel="apple-touch-icon" href="../assets/img/favicon.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Settings - FogsTasa</title>
@@ -293,12 +299,8 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
             document.getElementById('s_store_name').value = getSet('store_name');
             document.getElementById('s_store_address').value = getSet('store_address');
             document.getElementById('s_store_phone').value = getSet('store_phone');
-            
-            // NEW: Bind the TIN and Tax Status
             document.getElementById('s_store_tin').value = getSet('store_tin');
             document.getElementById('s_tax_status').value = getSet('tax_status');
-            
-            // NEW: Bind Payroll Rules
             document.getElementById('s_payroll_reg_hours').value = getSet('payroll_reg_hours') || '9';
             document.getElementById('s_payroll_ot_multiplier').value = getSet('payroll_ot_multiplier') || '1.0';
 
@@ -309,26 +311,29 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                 el.innerHTML = pOptions; el.value = getSet(k) || '0';
             });
 
+            // 🛡️ THE FIX: This safely encodes apostrophes so they don't break HTML attributes!
+            const safeJson = (obj) => JSON.stringify(obj).replace(/'/g, "&apos;");
+
             let html = '';
-            sd.categories.forEach(c => html += `<tr><td>${c.id}</td><td style="font-weight:bold;">${c.name}</td><td>${c.cat_type.toUpperCase()}</td><td class="action-links"><span class="edit" onclick='promptCategory(${JSON.stringify(c)})'>Edit</span><span class="delete" onclick="del('category', ${c.id})">Delete</span></td></tr>`);
+            sd.categories.forEach(c => html += `<tr><td>${c.id}</td><td style="font-weight:bold;">${c.name}</td><td>${c.cat_type.toUpperCase()}</td><td class="action-links"><span class="edit" onclick='promptCategory(${safeJson(c)})'>Edit</span><span class="delete" onclick="del('category', ${c.id})">Delete</span></td></tr>`);
             document.getElementById('cat-tbody').innerHTML = html;
 
             html = '';
-            sd.tables.forEach(t => html += `<tr><td>${t.id}</td><td style="font-weight:bold;">${t.table_number}</td><td>${t.status}</td><td class="action-links"><span class="edit" onclick='promptTable(${JSON.stringify(t)})'>Edit</span><span class="delete" onclick="del('table', ${t.id})">Delete</span></td></tr>`);
+            sd.tables.forEach(t => html += `<tr><td>${t.id}</td><td style="font-weight:bold;">${t.table_number}</td><td>${t.status}</td><td class="action-links"><span class="edit" onclick='promptTable(${safeJson(t)})'>Edit</span><span class="delete" onclick="del('table', ${t.id})">Delete</span></td></tr>`);
             document.getElementById('tab-tbody').innerHTML = html;
 
             html = '';
-            sd.modifiers.forEach(m => html += `<tr><td>${m.id}</td><td style="font-weight:bold;">${m.name}</td><td>₱${m.price}</td><td class="action-links"><span class="edit" onclick='promptModifier(${JSON.stringify(m)})'>Edit</span><span class="delete" onclick="del('modifier', ${m.id})">Delete</span></td></tr>`);
+            sd.modifiers.forEach(m => html += `<tr><td>${m.id}</td><td style="font-weight:bold;">${m.name}</td><td>₱${m.price}</td><td class="action-links"><span class="edit" onclick='promptModifier(${safeJson(m)})'>Edit</span><span class="delete" onclick="del('modifier', ${m.id})">Delete</span></td></tr>`);
             document.getElementById('mod-tbody').innerHTML = html;
 
             html = '';
-            sd.discounts.forEach(d => html += `<tr><td style="font-weight:bold;">${d.name}</td><td>${d.type}</td><td>${d.type==='percent'? d.value+'%' : '₱'+d.value}</td><td>${d.target_type}</td><td class="action-links"><span class="edit" onclick='promptDiscount(${JSON.stringify(d)})'>Edit</span><span class="delete" onclick="del('discount', ${d.id})">Delete</span></td></tr>`);
+            sd.discounts.forEach(d => html += `<tr><td style="font-weight:bold;">${d.name}</td><td>${d.type}</td><td>${d.type==='percent'? d.value+'%' : '₱'+d.value}</td><td>${d.target_type}</td><td class="action-links"><span class="edit" onclick='promptDiscount(${safeJson(d)})'>Edit</span><span class="delete" onclick="del('discount', ${d.id})">Delete</span></td></tr>`);
             document.getElementById('disc-tbody').innerHTML = html;
 
             html = '';
             sd.printers.forEach(p => {
                 const sizeLabel = p.character_limit == 48 ? '80mm' : '58mm';
-                html += `<tr><td style="font-weight:bold;">${p.name}</td><td>${p.connection_type} (${sizeLabel})</td><td>${p.path}</td><td class="action-links"><span class="edit" onclick='promptPrinter(${JSON.stringify(p)})'>Edit</span><span class="delete" onclick="del('printer', ${p.id})">Delete</span></td></tr>`;
+                html += `<tr><td style="font-weight:bold;">${p.name}</td><td>${p.connection_type} (${sizeLabel})</td><td>${p.path}</td><td class="action-links"><span class="edit" onclick='promptPrinter(${safeJson(p)})'>Edit</span><span class="delete" onclick="del('printer', ${p.id})">Delete</span></td></tr>`;
             });
             document.getElementById('print-tbody').innerHTML = html;
 
@@ -341,12 +346,11 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                     <td>${fullName}</td>
                     <td><span style="background:#e2e8f0; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:bold; text-transform:uppercase;">${u.role_name}</span></td>
                     <td style="font-weight:bold; color:var(--brand-dark);">₱${rate}/hr</td>
-                    <td class="action-links"><span class="edit" onclick='promptStaff(${JSON.stringify(u)})'>Edit</span><span class="delete" onclick="del('staff', ${u.id})">Delete</span></td>
+                    <td class="action-links"><span class="edit" onclick='promptStaff(${safeJson(u)})'>Edit</span><span class="delete" onclick="del('staff', ${u.id})">Delete</span></td>
                 </tr>`;
             });
             document.getElementById('staff-tbody').innerHTML = html;
 
-            // RENDERING TIMESHEETS WITH GHOST SHIFT WARNINGS
             html = '';
             sd.timesheets.forEach(t => {
                 const clockIn = new Date(t.clock_in).toLocaleString();
@@ -363,7 +367,7 @@ if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_b
                     <td>${clockOut}</td>
                     ${hoursHtml}
                     <td class="action-links">
-                        <span class="edit" onclick='promptTimesheet(${JSON.stringify(t)})'>Edit</span>
+                        <span class="edit" onclick='promptTimesheet(${safeJson(t)})'>Edit</span>
                         <span class="delete" onclick="del('timesheet', ${t.id})">Delete</span>
                     </td>
                 </tr>`;

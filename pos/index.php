@@ -10,6 +10,7 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include '../pwa.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS - FogsTasa</title>
@@ -159,12 +160,42 @@ if (empty($_SESSION['user_id'])) { header("Location: ../"); exit; }
         async function showTakeoutPopup() {
             const r = await fetch('../api/get_takeouts.php');
             const orders = await r.json();
-            let html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; max-height:300px; overflow-y:auto;">';
-            html += `<div style="padding:15px; background:var(--brand); color:white; border-radius:8px; cursor:pointer;" onclick="newTakeout()">+ New Order</div>`;
+            
+            let html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; max-height:400px; overflow-y:auto; padding:10px 5px;">';
+            
+            // The New Walk-in Button
+            html += `<div style="padding:15px; background:var(--brand); color:white; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; box-shadow:0 4px 6px rgba(0,0,0,0.1);" onclick="newTakeout()">+ New Walk-in</div>`;
+            
             orders.forEach(o => {
-                html += `<div style="padding:15px; background:#f3f4f6; border-radius:8px; cursor:pointer;" onclick="loadTakeout(${o.id})">Order #${o.id}<br><small>₱${o.grand_total}</small><br><small style="color:gray">${o.time}</small></div>`;
+                let isWeb = o.reference && o.reference.startsWith('WEB-');
+                let displayName = o.customer_name ? o.customer_name : `Order #${o.id}`;
+                
+                // Color code the kitchen status
+                let badgeColor = o.status === 'open' ? '#f59e0b' : (o.status === 'preparing' ? '#3b82f6' : '#10b981');
+                
+                html += `
+                <div style="padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; text-align:left; position:relative; transition:0.2s; box-shadow:0 2px 4px rgba(0,0,0,0.05);" onclick="loadTakeout(${o.id})">
+                    
+                    ${isWeb ? `<div style="position:absolute; top:-8px; right:-8px; background:#dc2626; color:white; font-size:10px; font-weight:900; padding:4px 8px; border-radius:12px; box-shadow:0 2px 4px rgba(0,0,0,0.2);">WEB</div>` : ''}
+                    
+                    <div style="font-weight:900; color:#1e293b; font-size:15px; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-transform:uppercase;">${displayName}</div>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="color:var(--brand); font-weight:900; font-size:16px;">₱${parseFloat(o.grand_total).toFixed(2)}</span>
+                        <span style="font-size:10px; background:${badgeColor}; color:white; padding:3px 6px; border-radius:6px; font-weight:bold; text-transform:uppercase;">${o.status}</span>
+                    </div>
+                    
+                    <div style="font-size:11px; color:#64748b; font-weight:bold;">🕒 ${o.time}</div>
+                </div>`;
             });
-            Swal.fire({ title: 'Takeout Orders', html: html + '</div>', showConfirmButton: false });
+            
+            Swal.fire({ 
+                title: '<h2 style="margin:0; font-weight:900; color:#1e293b;">Active Takeouts</h2>', 
+                html: html + '</div>', 
+                showConfirmButton: false, 
+                background: '#f1f5f9',
+                width: 500
+            });
         }
 
         async function newTakeout() {

@@ -26,6 +26,7 @@ $discount_note = $input['discount_note'] ?? null;
 $senior_details = $input['senior_details'] ?? []; 
 $custom_discount = $input['custom_discount'] ?? null;
 $customer_name = !empty($input['customer_name']) ? $input['customer_name'] : null;
+$void_reason_input = !empty($input['void_reason']) ? $input['void_reason'] : "Removed from active cart / Kitchen Cancel";
 
 try {
     $mysqli = get_db_conn();
@@ -38,7 +39,34 @@ try {
         $order_id = $mysqli->insert_id;
         $stmt->close();
         
-        $ref_number = date('ym') . str_pad($order_id, 3, '0', STR_PAD_LEFT);
+        // 🌟 THE FIX: Monthly Resetting Reference Number (Format: 2604XXX)
+        $current_ym = date('ym'); // Gets "2604" for April 2026
+        
+        // Look for the last reference number generated THIS month specifically
+        $ref_stmt = $mysqli->prepare("
+            SELECT reference 
+            FROM orders 
+            WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+              AND YEAR(created_at) = YEAR(CURRENT_DATE())
+              AND reference LIKE CONCAT(?, '%')
+              AND id != ? 
+            ORDER BY id DESC LIMIT 1
+        ");
+        $ref_stmt->bind_param('si', $current_ym, $order_id);
+        $ref_stmt->execute();
+        $ref_res = $ref_stmt->get_result();
+        
+        $sequence = 0; // Start at 000
+        if ($row = $ref_res->fetch_assoc()) {
+            // Strip the first 4 digits (the year+month "2604") and add 1
+            $last_seq = (int)substr($row['reference'], 4);
+            $sequence = $last_seq + 1;
+        }
+        $ref_stmt->close();
+        
+        // Combine them: 2604 + 000 = 2604000
+        $ref_number = $current_ym . str_pad($sequence, 3, '0', STR_PAD_LEFT);
+        
         $r_stmt = $mysqli->prepare("UPDATE orders SET reference = ? WHERE id = ?");
         $r_stmt->bind_param('si', $ref_number, $order_id);
         $r_stmt->execute();
@@ -66,8 +94,7 @@ try {
     }
 
     $existing_map = [];
-    // We added product_name, base_price, and item_notes to the SELECT query!
-    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, item_notes FROM order_items WHERE order_id = ?");
+    $e_stmt = $mysqli->prepare("SELECT id, product_id, variation_id, quantity, product_name, base_price, line_total, item_notes, kitchen_printed FROM order_items WHERE order_id = ?");
     $e_stmt->bind_param('i', $order_id);
     $e_stmt->execute();
     $e_res = $e_stmt->get_result();
@@ -81,7 +108,6 @@ try {
         $m_res = $m_stmt->get_result();
         $m_ids = []; while($m = $m_res->fetch_assoc()) $m_ids[] = $m['modifier_id'];
         
-        // BULLETPROOF KEY: Includes Name (for custom items), Price, and Notes!
         $pid_part = is_null($row['product_id']) ? 'custom_' . md5($row['product_name']) : $row['product_id'];
         $price_part = number_format((float)$row['base_price'], 2, '.', '');
         $note_part = md5($row['item_notes'] ?? '');
@@ -97,18 +123,38 @@ try {
     $del_item = $mysqli->prepare("DELETE FROM order_items WHERE id = ?");
     $ins_mod  = $mysqli->prepare("INSERT INTO order_item_modifiers (order_item_id, modifier_id, name, price) VALUES (?, ?, ?, ?)");
     
-    $get_prod = $mysqli->prepare("SELECT name, price FROM products WHERE id = ?");
-    $get_var = $mysqli->prepare("SELECT name, price FROM product_variations WHERE id = ?");
-    $get_mod = $mysqli->prepare("SELECT name, price FROM modifiers WHERE id = ?");
+    $p_ids = []; $v_ids = []; $m_ids_all = [];
+    foreach ($items as $item) {
+        if ($item['id'] !== 'custom_item') $p_ids[] = (int)$item['id'];
+        if (!empty($item['variation_id'])) $v_ids[] = (int)$item['variation_id'];
+        foreach (($item['modifiers'] ?? []) as $m) $m_ids_all[] = (int)$m['id'];
+    }
+    
+    $products_map = [];
+    if (!empty($p_ids)) {
+        $list = implode(',', array_unique($p_ids));
+        $res = $mysqli->query("SELECT id, name, price FROM products WHERE id IN ($list)");
+        while ($r = $res->fetch_assoc()) $products_map[$r['id']] = $r;
+    }
+    $variations_map = [];
+    if (!empty($v_ids)) {
+        $list = implode(',', array_unique($v_ids));
+        $res = $mysqli->query("SELECT id, name, price FROM product_variations WHERE id IN ($list)");
+        while ($r = $res->fetch_assoc()) $variations_map[$r['id']] = $r;
+    }
+    $modifiers_map = [];
+    if (!empty($m_ids_all)) {
+        $list = implode(',', array_unique($m_ids_all));
+        $res = $mysqli->query("SELECT id, name, price FROM modifiers WHERE id IN ($list)");
+        while ($r = $res->fetch_assoc()) $modifiers_map[$r['id']] = $r;
+    }
 
     $processed_ids = [];
-
+    $partial_voids = []; 
+    
     foreach ($items as $item) {
-        // ====================================================================
-        // FIX 1: THE OFF-MENU INTERCEPTOR
-        // ====================================================================
         $is_custom = ($item['id'] === 'custom_item');
-        $p_id = $is_custom ? null : (int)$item['id']; // Leave product_id NULL in the database
+        $p_id = $is_custom ? null : (int)$item['id']; 
         
         $v_id = !empty($item['variation_id']) ? (int)$item['variation_id'] : null; 
         $qty = (int)$item['qty'];
@@ -118,29 +164,23 @@ try {
 
         $mod_ids = array_column($item['modifiers'] ?? [], 'id'); sort($mod_ids);
 
-        // Figure out the price and name FIRST
         $base_p = 0; $p_name = ''; $v_name = null;
         
         if ($is_custom) {
             $base_p = (float)$item['price'];
             $p_name = $item['name'];
         } else {
-            $get_prod->bind_param('i', $p_id); $get_prod->execute();
-            if ($p_data = $get_prod->get_result()->fetch_assoc()) { 
-                $base_p = (float)$p_data['price']; 
-                $p_name = $p_data['name']; 
-                if ($base_p == 0) {
-                    $base_p = (float)$item['price']; 
-                }
+            if (isset($products_map[$p_id])) {
+                $base_p = (float)$products_map[$p_id]['price'];
+                $p_name = $products_map[$p_id]['name'];
+                if ($base_p == 0) $base_p = (float)$item['price'];
             }
         }
-
-        if ($v_id && !$is_custom) {
-            $get_var->bind_param('i', $v_id); $get_var->execute();
-            if ($v_data = $get_var->get_result()->fetch_assoc()) { $base_p = (float)$v_data['price']; $v_name = $v_data['name']; }
+        if ($v_id && !$is_custom && isset($variations_map[$v_id])) {
+            $base_p = (float)$variations_map[$v_id]['price']; 
+            $v_name = $variations_map[$v_id]['name']; 
         }
 
-        // NOW GENERATE THE BULLETPROOF KEY:
         $pid_part = $is_custom ? 'custom_' . md5($p_name) : $p_id;
         $price_part = number_format($base_p, 2, '.', '');
         $note_part = md5($item_note ?? '');
@@ -149,8 +189,8 @@ try {
         $mod_total = 0; $resolved_mods = [];
         foreach (($item['modifiers'] ?? []) as $m) {
             $mid = (int)$m['id'];
-            $get_mod->bind_param('i', $mid); $get_mod->execute();
-            if ($md = $get_mod->get_result()->fetch_assoc()) {
+            if (isset($modifiers_map[$mid])) {
+                $md = $modifiers_map[$mid];
                 $mod_total += (float)$md['price']; 
                 $resolved_mods[] = ['id' => $mid, 'name' => $md['name'], 'price' => (float)$md['price']];
             }
@@ -159,6 +199,30 @@ try {
 
         if (isset($existing_map[$key])) {
             $existing_id = $existing_map[$key]['id'];
+            $old_qty = (int)$existing_map[$key]['quantity'];
+            $old_line_total = (float)$existing_map[$key]['line_total'];
+            $old_printed = (int)$existing_map[$key]['kitchen_printed'];
+
+            // 🌟 SMART VOID MATH: Detect if the quantity went down
+            if ($qty < $old_qty) {
+                $qty_diff = $old_qty - $qty;
+                
+                // 🌟 CAP THE WASTE: Only count it if it eats into the printed amount!
+                $wasted_qty = max(0, $qty_diff - ($old_qty - $old_printed));
+
+                if ($wasted_qty > 0) {
+                    $unit_price = $old_qty > 0 ? ($old_line_total / $old_qty) : 0;
+                    $void_amount = $unit_price * $wasted_qty;
+
+                    $partial_voids[] = [
+                        'id' => $existing_id,
+                        'product_name' => $p_name,
+                        'quantity' => $wasted_qty,
+                        'amount' => $void_amount
+                    ];
+                }
+            }
+
             $upd_item->bind_param('iddssi', $qty, $line_total, $item_disc_amt, $item_disc_note, $item_note, $existing_id);
             $upd_item->execute();
             $processed_ids[] = $existing_id;
@@ -173,20 +237,80 @@ try {
         }
     }
 
-    foreach ($existing_map as $e_item) {
+    // ====================================================================
+    // KITCHEN WASTE TRACKING: Waste-Aware Deletions
+    // ====================================================================
+    $items_to_void = [];
+    $items_to_silently_delete = [];
+    
+    foreach ($existing_map as $key => $e_item) {
         if (!in_array($e_item['id'], $processed_ids)) {
-            $del_item->bind_param('i', $e_item['id']); $del_item->execute();
-            $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
-            $del_mods->bind_param('i', $e_item['id']); $del_mods->execute(); $del_mods->close();
+            $old_qty = (int)$e_item['quantity'];
+            $old_printed = (int)$e_item['kitchen_printed'];
+            
+            if ($old_printed > 0) {
+                // It was printed! Log EXACTLY what the kitchen knew about to the waste tracker.
+                $unit_price = $old_qty > 0 ? ((float)$e_item['line_total'] / $old_qty) : 0;
+                $items_to_void[] = [
+                    'id' => $e_item['id'],
+                    'product_name' => $e_item['product_name'],
+                    'quantity' => $old_printed, // ONLY log the printed amount!
+                    'amount' => $unit_price * $old_printed,
+                    'full_delete' => true
+                ];
+            } else {
+                // NEVER PRINTED! Vaporize it silently.
+                $items_to_silently_delete[] = $e_item['id'];
+            }
         }
+    }
+
+    foreach ($partial_voids as $pv) {
+        $items_to_void[] = [
+            'id' => $pv['id'], 'product_name' => $pv['product_name'], 'quantity' => $pv['quantity'], 'amount' => $pv['amount'], 'full_delete' => false
+        ];
+    }
+
+    // Process logged voids
+    if (!empty($items_to_void)) {
+        $v_stmt = $mysqli->prepare("INSERT INTO voids (order_id, manager_id, reason) VALUES (?, ?, ?)");
+        $v_stmt->bind_param('iis', $order_id, $_SESSION['user_id'], $void_reason_input);
+        $v_stmt->execute();
+        $void_id = $mysqli->insert_id;
+        $v_stmt->close();
+
+        $vi_stmt = $mysqli->prepare("INSERT INTO void_items (void_id, product_name, quantity, amount) VALUES (?, ?, ?, ?)");
+        $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
+
+        foreach ($items_to_void as $item) {
+            $vi_stmt->bind_param('isid', $void_id, $item['product_name'], $item['quantity'], $item['amount']);
+            $vi_stmt->execute();
+
+            if ($item['full_delete']) {
+                $del_mods->bind_param('i', $item['id']);
+                $del_mods->execute();
+                
+                $del_item->bind_param('i', $item['id']);
+                $del_item->execute();
+            }
+        }
+        $vi_stmt->close();
+        $del_mods->close();
+    }
+
+    // Process silent deletes (Clean database cleanup for unprinted items)
+    if (!empty($items_to_silently_delete)) {
+        $del_mods = $mysqli->prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?");
+        foreach ($items_to_silently_delete as $id) {
+            $del_mods->bind_param('i', $id); $del_mods->execute();
+            $del_item->bind_param('i', $id); $del_item->execute();
+        }
+        $del_mods->close();
     }
 
     $global_discount_amount = 0;
     $EXCLUDED_CATEGORY_ID = 7; 
     
-    // ====================================================================
-    // FIX 2: LEFT JOIN PREVENTS CUSTOM ITEMS FROM CRASHING THE DISCOUNT LOOP
-    // ====================================================================
     $oi_stmt = $mysqli->prepare("SELECT o.id, COALESCE(p.category_id, 0) as category_id, COALESCE(c.cat_type, 'other') as cat_type, (o.base_price + o.modifier_total) as unit_price, o.quantity, o.line_total FROM order_items o LEFT JOIN products p ON o.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id WHERE o.order_id = ?");
     $oi_stmt->bind_param('i', $order_id);
     $oi_stmt->execute();
@@ -256,11 +380,9 @@ try {
                 $discount_note = null; 
             }
         }
-    } // <-- Notice we closed the main discount if-statement here!
+    }
 
-    // NEW: Use a standard 'if' instead of 'else if' so they can stack!
     if ($custom_discount && isset($custom_discount['is_active']) && $custom_discount['is_active']) {
-        
         $c_type = $custom_discount['type'] ?? 'amount';
         $c_val = (float)($custom_discount['val'] ?? 0);
         $c_target = $custom_discount['target'] ?? 'all';
@@ -290,11 +412,8 @@ try {
             $custom_amt = min($c_val, $target_subtotal);
         }
 
-        // STACK THE MATH: Add the rounding to whatever SC/PWD discount is already there!
         $global_discount_amount += $custom_amt;
         
-        // Append the note so the receipt shows both!
-        // Ensure "Custom:" is present so the JS can detect it on reload
         $c_label = (strpos($c_note, 'Custom:') === false) ? "Custom: " . $c_note : $c_note;
         if ($discount_note) {
             $discount_note .= " + " . $c_label; 

@@ -23,7 +23,7 @@ $id = !empty($input['id']) ? (int)$input['id'] : null;
 $name = trim($input['name'] ?? '');
 $cat_id = (int)($input['category_id'] ?? 0);
 $base_price = (float)($input['price'] ?? 0);
-$available = isset($input['available']) ? (int)$input['available'] : 1; // THE TOGGLE DATA!
+$available = isset($input['available']) ? (int)$input['available'] : 1; 
 $variations = $input['variations'] ?? []; 
 $modifier_ids = $input['modifiers'] ?? []; 
 
@@ -88,10 +88,18 @@ try {
         }
     }
 
+    // ============================================================
+    // THE FIX: UNLINK AND FORCE DELETE VARIATIONS
+    // ============================================================
     $to_delete = array_diff($current_vars, $incoming_v_ids);
     if (!empty($to_delete)) {
         $ids_string = implode(',', $to_delete);
-        $mysqli->query("DELETE FROM product_variations WHERE id IN ($ids_string) AND id NOT IN (SELECT DISTINCT variation_id FROM order_items WHERE variation_id IS NOT NULL)");
+        
+        // 1. Safely detach from old receipts so they don't break (the text name is already saved on them)
+        $mysqli->query("UPDATE order_items SET variation_id = NULL WHERE variation_id IN ($ids_string)");
+        
+        // 2. Now cleanly delete the variations so they completely disappear!
+        $mysqli->query("DELETE FROM product_variations WHERE id IN ($ids_string)");
     }
 
     // 3. REBUILD MODIFIERS

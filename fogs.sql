@@ -283,6 +283,7 @@ ALTER TABLE order_items ADD COLUMN item_notes VARCHAR(255) NULL AFTER discount_n
 ALTER TABLE orders ADD COLUMN tip_amount DECIMAL(10,2) DEFAULT 0.00 AFTER grand_total;
 ALTER TABLE order_items MODIFY product_id INT(10) UNSIGNED NULL;
 
+
 -- 1. Turn on the background task runner
 SET GLOBAL event_scheduler = ON;
 
