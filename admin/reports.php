@@ -412,6 +412,78 @@ foreach ($timesheets as $t) {
                 document.body.classList.remove('print-payroll-mode');
             }, 500);
         }
+        
+        // Live Item Filtering Logic
+        function filterItems() {
+            let input = document.getElementById("singleItemSearch").value.toLowerCase();
+            let rows = document.querySelectorAll("#itemsTable tbody tr");
+            rows.forEach(row => {
+                if (row.cells.length < 3) return; 
+                let text = row.cells[0].innerText.toLowerCase(); 
+                row.style.display = text.includes(input) ? "" : "none";
+            });
+        }
+
+        // --- CHART JS INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', function() {
+            // 1. Daily Sales Line Chart
+            const salesCtx = document.getElementById('salesChart');
+            if (salesCtx) {
+                const dailyData = <?= json_encode($daily_sales) ?>;
+                const labels = dailyData.map(d => {
+                    const date = new Date(d.sale_date);
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                });
+                const revenues = dailyData.map(d => parseFloat(d.daily_revenue));
+
+                new Chart(salesCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Gross Sales (₱)',
+                            data: revenues,
+                            borderColor: '#6B4226',
+                            backgroundColor: 'rgba(107, 66, 38, 0.1)',
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.3,
+                            pointBackgroundColor: '#6B4226'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            }
+
+            // 2. Category Sales Doughnut Chart
+            const catCtx = document.getElementById('categoryChart');
+            if (catCtx) {
+                const catData = <?= json_encode($cat_sales) ?>;
+                const catLabels = catData.map(d => d.cat_type.toUpperCase());
+                const catRevs = catData.map(d => parseFloat(d.revenue));
+
+                new Chart(catCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: catLabels,
+                        datasets: [{
+                            data: catRevs,
+                            backgroundColor: ['#f59e0b', '#3b82f6', '#10b981', '#6366f1', '#8b5cf6'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'bottom' } },
+                        cutout: '65%'
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>
