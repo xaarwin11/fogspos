@@ -62,7 +62,6 @@ if ($stmt = $mysqli->prepare("SELECT t.*, u.username, u.first_name, u.last_name,
 
 // Process Payroll Array
 $staff_pay = [];
-$total_payroll_cost = 0;
 foreach ($timesheets as $t) {
     $uid = $t['user_id'];
     $name = ($t['first_name'] ? $t['first_name'] . ' ' . $t['last_name'] : $t['username']);
@@ -89,7 +88,7 @@ foreach ($timesheets as $t) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Reports - FogsTasa</title>
+    <title>Master Reports & Payroll - FogsTasa</title>
     <link rel="stylesheet" href="../assets/css/main.css">
     <link rel="icon" type="image/png" href="../assets/img/favicon.png">
     <style>
@@ -112,16 +111,48 @@ foreach ($timesheets as $t) {
         .data-table th, .data-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
         .data-table th { background: #f9fafb; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
         .data-table tr:hover { background: #fdfaf6; }
-        
+
+        /* Inputs for Pay Adjustments */
+        .adj-input { width: 80px; padding: 6px; border: 1px solid #ccc; border-radius: 6px; text-align: right; font-weight: bold; font-family: monospace; font-size: 1rem; }
+        .adj-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 5px rgba(107, 66, 38, 0.3); }
+
+        /* Default hidden classes for print elements */
+        .print-only, .print-only-block { display: none !important; }
+
+        /* =================================================================
+           PRINT STYLESHEET: Handles both Master Report AND Payroll Ledger
+           ================================================================= */
         @media print {
-            body * { visibility: hidden; }
-            .report-layout { margin: 0; padding: 0; }
+            body { background: white; }
+            body * { visibility: hidden; } /* Hide everything by default */
+            
+            .no-print { display: none !important; }
+
+            /* --- MODE 1: MASTER REPORT (Default Print) --- */
             #printable-area, #printable-area * { visibility: visible; }
             #printable-area { position: absolute; left: 0; top: 0; width: 100%; }
-            .no-print { display: none !important; }
             .report-section { box-shadow: none; border: none; padding: 0; margin-bottom: 40px; }
             .data-table th { background: #eee !important; -webkit-print-color-adjust: exact; }
             .data-table th, .data-table td { border: 1px solid #ccc; }
+
+            /* --- MODE 2: PAYROLL LEDGER ONLY (Triggered via JS class) --- */
+            body.print-payroll-mode @page { size: landscape; margin: 15mm; }
+            
+            body.print-payroll-mode #printable-area { visibility: hidden; } /* Hide the rest of the report */
+            
+            body.print-payroll-mode #payroll-print-section, 
+            body.print-payroll-mode #payroll-print-section * { visibility: visible; }
+            body.print-payroll-mode #payroll-print-section { position: absolute; left: 0; top: 0; width: 100%; margin: 0; font-family: 'Helvetica', sans-serif; }
+            
+            body.print-payroll-mode .print-only { display: table-cell !important; }
+            body.print-payroll-mode .print-only-block { display: block !important; }
+            
+            body.print-payroll-mode .data-table { border: 2px solid black; }
+            body.print-payroll-mode .data-table th, 
+            body.print-payroll-mode .data-table td { border: 1px solid #000; padding: 10px; font-size: 10pt; color: #000 !important; }
+            body.print-payroll-mode .data-table th { background: #e2e8f0 !important; -webkit-print-color-adjust: exact; font-weight: bold; color: black !important; }
+            
+            body.print-payroll-mode h2.web-header { display: none; }
         }
     </style>
 </head>
@@ -140,12 +171,13 @@ foreach ($timesheets as $t) {
             </div>
             <div style="display: flex; gap: 10px;">
                 <button class="btn success" style="height:40px; padding:0 20px; font-weight:bold;" onclick="loadReport()">Generate Report</button>
-                <button class="btn secondary" style="height:40px; padding:0 20px; border:2px dashed #ccc;" onclick="window.print()">🖨️ Print A4</button>
+                <button class="btn secondary" style="height:40px; padding:0 20px; border:2px dashed #ccc;" onclick="window.print()">🖨️ Print Master Report</button>
             </div>
         </div>
 
         <div id="printable-area">
-            <div style="text-align:center; margin-bottom:30px; display:none;" class="print-only">
+            
+            <div style="text-align:center; margin-bottom:30px;" class="print-only-block">
                 <h1 style="margin:0;">Fogs Tasas Cafe - Master Report</h1>
                 <p style="color:gray; font-size:1.1rem; margin:5px 0;">Period: <?= date('M d, Y', strtotime($start_date)) ?> to <?= date('M d, Y', strtotime($end_date)) ?></p>
             </div>
@@ -186,7 +218,6 @@ foreach ($timesheets as $t) {
 
             <div class="report-section">
                 <h2>💰 Cash Drawer / Shift Variances</h2>
-                <p style="color:gray; font-size:0.9rem; margin-top:-10px;">Tracks if cashiers are coming up short or over at the end of their shifts.</p>
                 <div style="overflow-x: auto;">
                     <table class="data-table">
                         <thead>
@@ -227,50 +258,110 @@ foreach ($timesheets as $t) {
                 </div>
             </div>
 
-            <div class="report-section" style="margin-bottom: 0;">
-                <h2>👥 Employee Wages & Payroll</h2>
-                <p style="color:gray; font-size:0.9rem; margin-top:-10px;">Auto-calculated based on your Timesheets and Hourly Rates.</p>
+            <div class="report-section" id="payroll-print-section" style="margin-bottom: 0;">
+                
+                <div class="print-only-block" style="text-align:center; margin-bottom:20px;">
+                    <h1 style="margin:0; font-size:22pt; text-transform:uppercase; letter-spacing:2px;">Fogs Tasas Cafe</h1>
+                    <h2 style="margin:5px 0; font-size:16pt; font-weight:normal; border-bottom:2px solid black; display:inline-block; padding-bottom:5px;">Official Payroll Ledger</h2>
+                    <p style="margin:10px 0 0 0; font-weight:bold;">Period: <?= date('F d, Y', strtotime($start_date)) ?> to <?= date('F d, Y', strtotime($end_date)) ?></p>
+                </div>
+
+                <div class="no-print" style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; margin-bottom: 20px;">
+                    <div>
+                        <h2 class="web-header" style="margin:0; color:var(--brand-dark); border:none; padding:0;">👥 Employee Wages & Payroll</h2>
+                        <p style="color:gray; font-size:0.9rem; margin:5px 0 0 0;">Add bonuses or deductions below. The Net Pay will recalculate automatically.</p>
+                    </div>
+                    <button class="btn" style="background:#2e7d32; color:white; font-weight:bold; padding:10px 20px;" onclick="printPayrollLedger()">📝 Print DOLE Ledger</button>
+                </div>
+
                 <div style="overflow-x: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Employee</th>
-                                <th style="text-align:center;">Shifts Worked</th>
-                                <th style="text-align:center;">Regular Hrs</th>
-                                <th style="text-align:center;">OT Hrs</th>
-                                <th style="text-align:right;">Total Gross Wage</th>
+                                <th>Employee Name</th>
+                                <th style="text-align:center;">Shifts</th>
+                                <th style="text-align:center;">Reg Hrs</th>
+                                <th style="text-align:center; color:#c62828;">OT Hrs</th>
+                                <th style="text-align:right;">Base Gross</th>
+                                
+                                <th class="no-print" style="text-align:center; color:#10b981;">Allowance (+)</th>
+                                <th class="print-only" style="text-align:right;">Bonus (+)</th>
+                                
+                                <th class="no-print" style="text-align:center; color:#c62828;">Vale/Ded (-)</th>
+                                <th class="print-only" style="text-align:right;">Ded. (-)</th>
+                                
+                                <th style="text-align:right;">Net Pay</th>
+                                <th class="print-only" style="text-align:center;">Received By (Signature)</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach($staff_pay as $uid => $s): ?>
                             <?php 
-                                $regPay = $s['reg_hrs'] * $s['rate'];
-                                $otPay = $s['ot_hrs'] * ($s['rate'] * $rules['ot_multi']);
-                                $gross = $regPay + $otPay;
-                                $total_payroll_cost += $gross;
+                                $total_gross_cost = 0;
+                                foreach($staff_pay as $uid => $s): 
+                                    $regPay = $s['reg_hrs'] * $s['rate'];
+                                    $otPay = $s['ot_hrs'] * ($s['rate'] * $rules['ot_multi']);
+                                    $gross = $regPay + $otPay;
+                                    $total_gross_cost += $gross;
                             ?>
-                            <tr>
-                                <td><strong><?= $s['name'] ?></strong><br><small style="color:gray;">₱<?= number_format($s['rate'], 2) ?>/hr</small></td>
+                            <tr class="payroll-row" data-gross="<?= $gross ?>">
+                                <td>
+                                    <strong><?= mb_strtoupper((string)$s['name'], 'UTF-8') ?></strong><br>
+                                    <small style="color:gray;">₱<?= number_format($s['rate'], 2) ?>/hr</small>
+                                </td>
                                 <td style="text-align:center;"><?= $s['shifts'] ?></td>
                                 <td style="text-align:center;"><?= number_format($s['reg_hrs'], 2) ?></td>
                                 <td style="text-align:center; color:#c62828; font-weight:bold;"><?= $s['ot_hrs'] > 0 ? number_format($s['ot_hrs'], 2) : '-' ?></td>
-                                <td style="text-align:right; font-weight:bold; font-size:1.1rem; color:var(--brand-dark);">₱<?= number_format($gross, 2) ?></td>
+                                <td style="text-align:right; color:#475569;">₱<?= number_format($gross, 2) ?></td>
+                                
+                                <td class="no-print" style="text-align:center;">
+                                    <input type="number" class="adj-input bonus-val" placeholder="0.00" onkeyup="recalcPayroll()" onchange="recalcPayroll()">
+                                </td>
+                                <td class="print-only print-bonus" style="text-align:right;">-</td>
+                                
+                                <td class="no-print" style="text-align:center;">
+                                    <input type="number" class="adj-input ded-val" placeholder="0.00" onkeyup="recalcPayroll()" onchange="recalcPayroll()">
+                                </td>
+                                <td class="print-only print-ded" style="text-align:right;">-</td>
+                                
+                                <td style="text-align:right; font-weight:900; font-size:1.1rem; color:var(--brand-dark);">
+                                    ₱<span class="row-net"><?= number_format($gross, 2) ?></span>
+                                </td>
+
+                                <td class="print-only" style="text-align:center; vertical-align:bottom; padding-bottom:5px;">
+                                    <div style="width:150px; border-bottom:1px solid black; margin:20px auto 0 auto;"></div>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
-                            <?php if(empty($staff_pay)) echo "<tr><td colspan='5' style='text-align:center;'>No timesheets recorded for this period.</td></tr>"; ?>
+                            
+                            <?php if(empty($staff_pay)) echo "<tr><td colspan='11' style='text-align:center;'>No timesheets recorded for this period.</td></tr>"; ?>
                             
                             <?php if(!empty($staff_pay)): ?>
                             <tr style="background:#f1f5f9; border-top:2px solid #cbd5e1;">
-                                <td colspan="4" style="text-align:right; font-weight:bold; font-size:1.1rem; text-transform:uppercase;">Total Payroll Liability:</td>
-                                <td style="text-align:right; font-weight:900; font-size:1.3rem; color:#c62828;">₱<?= number_format($total_payroll_cost, 2) ?></td>
+                                <td colspan="5" style="text-align:right; font-weight:bold; font-size:1.1rem; text-transform:uppercase;">Total Net Payroll Release:</td>
+                                <td class="no-print" colspan="2"></td>
+                                <td class="print-only" colspan="2"></td>
+                                <td style="text-align:right; font-weight:900; font-size:1.4rem; color:#2e7d32;" id="grand-net-total">₱<?= number_format($total_gross_cost, 2) ?></td>
+                                <td class="print-only"></td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
+
+                    <div class="print-only-block" style="margin-top: 50px; text-align: left;">
+                        <div style="display:inline-block; width: 45%;">
+                            <p style="margin-bottom: 40px;">Prepared by:</p>
+                            <div style="width:250px; border-bottom:1px solid black;"></div>
+                            <p style="margin-top: 5px; font-weight:bold;">Admin / Manager</p>
+                        </div>
+                        <div style="display:inline-block; width: 45%; text-align: right;">
+                            <p style="margin-bottom: 40px;">Approved and Released by:</p>
+                            <div style="width:250px; border-bottom:1px solid black; display:inline-block;"></div>
+                            <p style="margin-top: 5px; font-weight:bold; padding-right:50px;">Owner</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             
-            <style> @media print { .print-only { display: block !important; } } </style>
         </div>
     </div>
 
@@ -279,6 +370,41 @@ foreach ($timesheets as $t) {
             const start = document.getElementById('r_start').value;
             const end = document.getElementById('r_end').value;
             window.location.href = `reports.php?start=${start}&end=${end}`;
+        }
+
+        // Live calculation logic for the web inputs
+        function recalcPayroll() {
+            let grandNet = 0;
+            document.querySelectorAll('.payroll-row').forEach(row => {
+                let gross = parseFloat(row.getAttribute('data-gross')) || 0;
+                let bonus = parseFloat(row.querySelector('.bonus-val').value) || 0;
+                let ded = parseFloat(row.querySelector('.ded-val').value) || 0;
+                
+                let net = gross + bonus - ded;
+                if (net < 0) net = 0; // Prevent negative pay
+                
+                // Update Web UI
+                row.querySelector('.row-net').innerText = net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                
+                // Update hidden Print spans so they display cleanly on paper
+                row.querySelector('.print-bonus').innerText = bonus > 0 ? bonus.toLocaleString('en-US', {minimumFractionDigits: 2}) : '-';
+                row.querySelector('.print-ded').innerText = ded > 0 ? ded.toLocaleString('en-US', {minimumFractionDigits: 2}) : '-';
+                
+                grandNet += net;
+            });
+            document.getElementById('grand-net-total').innerText = '₱' + grandNet.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+
+        // Dedicated function to print ONLY the Payroll Ledger
+        function printPayrollLedger() {
+            recalcPayroll(); // Ensure math is updated
+            document.body.classList.add('print-payroll-mode');
+            window.print();
+            
+            // Remove the class after the print dialog closes so the web view returns to normal
+            setTimeout(() => {
+                document.body.classList.remove('print-payroll-mode');
+            }, 500);
         }
     </script>
 </body>
