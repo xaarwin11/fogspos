@@ -35,6 +35,42 @@ if ($stmt = $mysqli->prepare("SELECT method, SUM(amount - change_given) as net_a
     $stmt->close();
 }
 
+// 2.1 FETCH DAILY SALES TREND
+$daily_sales = [];
+if ($stmt = $mysqli->prepare("SELECT DATE(paid_at) as sale_date, SUM(grand_total) as daily_revenue FROM orders WHERE DATE(paid_at) >= ? AND DATE(paid_at) <= ? AND status = 'paid' GROUP BY DATE(paid_at) ORDER BY sale_date ASC")) {
+    $stmt->bind_param('ss', $start_date, $end_date);
+    $stmt->execute();
+    $daily_sales = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
+
+// 2.2 FETCH CATEGORY BREAKDOWN
+$cat_sales = [];
+if ($stmt = $mysqli->prepare("SELECT COALESCE(c.cat_type, 'food') as cat_type, SUM(oi.line_total) as revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id LEFT JOIN products p ON oi.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id WHERE DATE(o.paid_at) >= ? AND DATE(o.paid_at) <= ? AND o.status = 'paid' GROUP BY cat_type")) {
+    $stmt->bind_param('ss', $start_date, $end_date);
+    $stmt->execute();
+    $cat_sales = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
+
+// 2.3 FETCH TOP 10 ITEMS
+$top_items = [];
+if ($stmt = $mysqli->prepare("SELECT product_name, SUM(quantity) as qty_sold, SUM(line_total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE DATE(o.paid_at) >= ? AND DATE(o.paid_at) <= ? AND o.status = 'paid' GROUP BY product_name ORDER BY qty_sold DESC LIMIT 10")) {
+    $stmt->bind_param('ss', $start_date, $end_date);
+    $stmt->execute();
+    $top_items = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
+
+// 2.4 FETCH ALL ITEMS
+$all_items = [];
+if ($stmt = $mysqli->prepare("SELECT product_name, SUM(quantity) as qty_sold, SUM(line_total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE DATE(o.paid_at) >= ? AND DATE(o.paid_at) <= ? AND o.status = 'paid' GROUP BY product_name ORDER BY product_name ASC")) {
+    $stmt->bind_param('ss', $start_date, $end_date);
+    $stmt->execute();
+    $all_items = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
+
 // 3. FETCH CASH DRAWER / REGISTER SHIFTS
 $shifts = [];
 if ($stmt = $mysqli->prepare("SELECT r.*, u1.username as opener, u2.username as closer FROM register_shifts r LEFT JOIN users u1 ON r.opened_by = u1.id LEFT JOIN users u2 ON r.closed_by = u2.id WHERE DATE(r.opened_at) >= ? AND DATE(r.opened_at) <= ? ORDER BY r.opened_at DESC")) {
@@ -485,6 +521,27 @@ foreach ($timesheets as $t) {
                 let text = row.cells[0].innerText.toLowerCase(); 
                 row.style.display = text.includes(input) ? "" : "none";
             });
+        }
+
+        // Export Full Items Table to CSV
+        function exportItemsCSV() {
+            let csv = [];
+            let rows = document.querySelectorAll("#itemsTable tr");
+            for (let i = 0; i < rows.length; i++) {
+                let row = [], cols = rows[i].querySelectorAll("td, th");
+                for (let j = 0; j < cols.length; j++) {
+                    let data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, " ").replace(/"/g, '""');
+                    row.push('"' + data + '"');
+                }
+                csv.push(row.join(","));
+            }
+            let csvFile = new Blob([csv.join("\n")], {type: "text/csv"});
+            let downloadLink = document.createElement("a");
+            downloadLink.download = "product_sales_" + document.getElementById('r_start').value + ".csv";
+            downloadLink.href = window.URL.createObjectURL(csvFile);
+            downloadLink.style.display = "none";
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
         }
 
         // --- CHART JS INITIALIZATION ---
